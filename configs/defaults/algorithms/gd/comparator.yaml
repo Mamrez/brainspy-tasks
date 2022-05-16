@@ -1,0 +1,6 @@
+type: "gradient"
+epochs: 400
+learning_rate: 0.01
+criterion: corr_fit
+optimizer: "adam"
+constraint_control_voltages: "regul" # 'regul' or 'clip'

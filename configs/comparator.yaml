@@ -1,0 +1,26 @@
+from_dimension: 4 # It determines the starting VC Dimension at which the experiment will start. This variable is only used for VC Dimension experiments.
+to_dimension: 7 # It determines the last VC Dimension at which the experiment will run. This variable is only used for VC Dimension experiments.
+threshold_parameter:
+  0.5 # This variable is only used for VC Dimension and Capacity experiments. It determines what the threshold will be by
+  # Applying the following formula: 1 - (threshold_parameter / current_dimension)
+max_attempts:
+  20 # It is sometimes the case that the boolean gate behaviour is not found on a single run,
+  #This variable specifies the number of attempts that will use in order to try to find a particular gate on the DNPU.
+results_dir:
+  "tmp/comparator" # It determines where the results of the experiments will be saved.
+  # A folder with the timestamp of the execution will be created inside this folder, each time the program is executed.
+# gate : [0, 1, 1, 0] # It determines the boolean gate that will be trained. Only to be used for single classifier. Commented out by default.
+algorithm: !include defaults/algorithms/gd/comparator.yaml
+threshold: 0.95
+accuracy:
+  # In order to train the XOR boolean gate, the corrsig_fit fitness function was selected. This criterion is used to check whether a given output is
+  # optimal or not by comparing its correlation to the target signal. However, this only measures the correlation, and it is difficult to know in
+  # advance at which output current levels will be the found solution. In order to have more information about the quality of the output, a simple
+  # perceptron, consisting of a linear layer and a sigmoid is trained on the normalised output. The perceptrons linear layer, will determine a threshold
+  # at which an output can be considered either 0 or 1. By comparing the final result 0 or 1 against the original label ( in this case, output of the truth
+  # table that an XOR table should have, with regard to two given inputs), the information of the accuracy can be calculated. This is done by counting the
+  # number of correctly classified inputs, against the total number of inputs (in this case 4, all the possible input combinations of the truth table for e1 and e2).
+  epochs: 100 # Number of times that the whole training dataset for the perceptron will be passed through the model.
+  learning_rate: 0.01 # Rate at which the model will update its weights
+  batch_size: 128 # Number of samples per forward pass of the model
+processor: !include defaults/processors/simulation.yaml
