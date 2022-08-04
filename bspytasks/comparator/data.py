@@ -8,10 +8,10 @@ class ComparatorDataset(Dataset):
         self.transforms = transforms
 
         # Total number of dataset = 10,000
-        dataset_size = 1000
+        dataset_size = 1024
         self.inputs = np.zeros((dataset_size, 2))
                 
-        a = np.linspace(0.0, 1.0, 256)
+        a = np.linspace(0.0, 1.0, 127)
         
         # self.inputs[:,0] = np.random.choice(a, dataset_size)
         self.inputs[:, 0] = np.random.choice(a, dataset_size) # 0.5
@@ -19,7 +19,7 @@ class ComparatorDataset(Dataset):
 
         self.labels = np.zeros((self.inputs.shape[0], 1))
         for i in range(self.labels.shape[0]):
-            if self.inputs[i, 0] >= self.inputs[i, 1]:
+            if self.inputs[i, 0]**4 - self.inputs[i, 1] >= 0:
                 self.labels[i] = 1.0
 
         # for i in range(self.inputs.shape[0]):

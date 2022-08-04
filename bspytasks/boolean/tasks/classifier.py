@@ -203,7 +203,7 @@ def plot_results(results, save_dir=None, fig=None, show_plots=False, line="-"):
     plt.plot(results["targets_waveform"].detach().cpu(),
              line,
              label="Target shape")
-    plt.ylabel("Current (nA)")
+    plt.ylabel("Voltage (V)")
     plt.xlabel("Time")
     plt.legend()
     if save_dir is not None:
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     from bspytasks.boolean.logger import Logger
     from brainspy.utils.io import load_configs
     from bspytasks.utils.transforms import DataToTensor
-    from bspytasks.models.default_boolean import DefaultCustomModel
+    from bspytasks.models.default_boolean import DefaultCustomHardwareModel as DefaultCustomModel
 
     configs = load_configs("configs/boolean.yaml")
 
