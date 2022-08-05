@@ -60,3 +60,4 @@ coverage.xml
 bspytasks/spike/ti46_LDC93S9.tar
 bspytasks/spike/a_audio_48KSPS_normalized.wav
 bspytasks/spike/b_audio_48KSPS_normalized.wav
+bspytasks/spike/ti46/*

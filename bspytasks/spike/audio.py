@@ -3,6 +3,7 @@ from cProfile import label
 from msilib.schema import AdvtUISequence
 from brainspy.utils.manager import get_driver
 
+    
 
 def ramping(start, stop, slope_points_no, plateau_length):
     ramp_up = np.linspace(start, stop, slope_points_no)
@@ -86,7 +87,7 @@ if __name__ == '__main__':
 
     output_spectrum = []
     outputs = []
-    for i in range(10):
+    for i in range(2):
         output = run_task(
                             input_index=1,
                             control_indeces=[0, 2, 3, 4, 5],
@@ -116,6 +117,8 @@ if __name__ == '__main__':
     plt.show()
 
     print("")
+
+
 
 
 
