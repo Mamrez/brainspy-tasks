@@ -11,7 +11,7 @@ from itertools import chain
 
 from torchvision import transforms
 
-import dataset_ti_alpha
+import dataset_hbs_challenge
 
 from brainspy.utils.manager import get_driver
 
@@ -152,8 +152,8 @@ def measurement(
                 rest_length
                 ):
 
-    dataset, labels = dataset_ti_alpha.load_train_dataset()
-    dataset = dataset_ti_alpha.remove_silence(dataset=dataset)
+    dataset, labels = dataset_hbs_challenge.load_train_dataset()
+    dataset = dataset_hbs_challenge.low_pass_filter(dataset=dataset)
     
     cnt = 0
     driver = get_driver(configs=configs["driver"])
@@ -165,7 +165,8 @@ def measurement(
             cnt += 1
             # 0 -> slope -> rest -> voice -> slope -> 0
             meas_input = np.zeros((len(dnpu_control_indeces) + 1, rest_length + 2 * slope_length + np.shape(dataset[d])[0]))
-            meas_input[dnpu_input_index, slope_length + rest_length: -slope_length] = 20 * dataset[d][:]
+            meas_input[dnpu_input_index, slope_length + rest_length: -slope_length] = 1.5 * dataset[d][:]
+            
             meas_input = set_random_control_voltages(
                                                     meas_input=             meas_input,
                                                     dnpu_control_indeces=   dnpu_control_indeces,
@@ -180,8 +181,8 @@ def measurement(
             dataset_after_projection.append(output[slope_length+rest_length:-slope_length])
             labels_after_projection.append(labels[d])
         
-        path_dataset = "tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf8_128_projections_elec3_limited_cv_with_rest/" + "data_" + str(d)
-        path_label = "tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf8_128_projections_elec3_limited_cv_with_rest/" + "label_" + str(d)
+        path_dataset = "tmp/projected_ti_alpha/boron_roomTemp_30nm/hbs_challenge_datasetA/" + "data_" + str(d)
+        path_label = "tmp/projected_ti_alpha/boron_roomTemp_30nm/hbs_challenge_datasetA/" + "label_" + str(d)
         np.save(path_dataset, dataset_after_projection)
         np.save(path_label, labels_after_projection)
         del dataset_after_projection
@@ -203,35 +204,21 @@ def convert_to_torch_dataset(dataset_after_projection, labels_after_projection):
 
     dataset = TensorDataset(tensor_x, torch.as_tensor(tensor_y))
 
-    val_dataset_size = int(0.2 * len(dataset))
+    val_dataset_size = int(0.25 * len(dataset))
     train_dataset_size = len(dataset) - val_dataset_size
 
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_dataset_size, val_dataset_size])
 
     train_dataloader = DataLoader(train_dataset,
                                 batch_size=64, 
-                                shuffle=True,
-                                drop_last=True)
+                                shuffle=True
+                                )
 
     val_dataloader = DataLoader(val_dataset,
-                                shuffle= True,
-                                drop_last= True)
+                                shuffle= True
+                                )
 
     return train_dataloader, val_dataloader
-
-def training_accuracy(model, dataset):
-    # model.eval()
-    correct_number = 0
-    num_samples = 0
-
-    with torch.no_grad():
-        for x,y in dataset:
-            scores = model(x)
-            _, preds = scores.max(1)
-            correct_number += (preds == y).sum()
-            num_samples += preds.size(0)
-        print(f'Got {correct_number} / {num_samples} with accuracy {float(correct_number)/float(num_samples)*100:.2f}%')
-
 
 def test_accuracy(dataset, model):
     # model.eval()
@@ -251,7 +238,7 @@ if __name__ == '__main__':
 
     # np.random.seed(1) 
 
-    # configs = load_configs('configs/defaults/processors/hw.yaml')
+    # configs = load_configs('configs/defaults/processors/hw_hbs_challenge.yaml')
     # slope_length = 1000
     # rest_lenth = 6000
 
@@ -264,36 +251,17 @@ if __name__ == '__main__':
     #             rest_length= rest_lenth
     #         )
 
+    # measurement_for_test(
+
+    # )
 
     # load projected dataset
     dataset_after_projection = []
     labels_after_projection = []
 
-    projected_training_data_m4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/m4_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_f4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/f4_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf5_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf5_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf1_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf1_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf2_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf2_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf3_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf3_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf6_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf6_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf7_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf7_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf8_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf8_128_projections_elec3_limited_cv_with_rest/"
+    projected_training_data = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/hbs_challenge_datasetA/"
 
-
-
-    dataset_paths = (
-                    # projected_training_data_m4_path, 
-                    # projected_training_data_f4_path,
-                    # projected_training_data_mANDf5_path,
-                    # projected_training_data_mANDf1_path,
-                    # projected_training_data_mANDf2_path,
-                    # projected_training_data_mANDf3_path,
-                    # projected_training_data_mANDf6_path,
-                    projected_training_data_mANDf7_path,
-                    projected_training_data_mANDf8_path
-                    )
-
-    for subdir, _, files in chain.from_iterable(os.walk(path) for path in dataset_paths):
+    for subdir, _, files in os.walk(projected_training_data):
         for file in files:
             if file[0] == 'd':
                 temp = np.load(os.path.join(subdir, file))
@@ -304,22 +272,10 @@ if __name__ == '__main__':
                 for i in range(np.shape(temp)[0]):
                     labels_after_projection.append(temp[0])
 
-
-    # low pass filter
     for i in range(len(dataset_after_projection)):
-        freq = np.fft.rfftfreq(n=len(dataset_after_projection[i]), d=1/12500)
-        f_transform = np.fft.rfft(dataset_after_projection[i][:,0])
-        for j in range(len(freq)):
-            if freq[j] >= 20:
-                f_start = j
-                break
-        for j in range(len(freq)):
-            if freq[- 1 - j] >= 6000:
-                pass
-            else:
-                f_stop = j
-                break
-        dataset_after_projection[i] = 10 * np.fft.irfft(f_transform[f_start : -f_stop])
+        mean = np.mean(dataset_after_projection[i][:,0])
+        dc_removed = dataset_after_projection[i][:,0] - mean
+        dataset_after_projection[i] = 10 * dc_removed
 
     # downsample
     down_sample_no = 512
@@ -340,7 +296,7 @@ if __name__ == '__main__':
 
     linear_layer = LinearLayer(
                             input_size= down_sample_no,
-                            num_classes= 26
+                            num_classes= 4
     )
 
     # torch.save(t_dataloader, 'f2_data_128_projection_test.pt')
