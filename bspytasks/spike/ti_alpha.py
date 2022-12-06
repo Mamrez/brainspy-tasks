@@ -264,51 +264,53 @@ if __name__ == '__main__':
     #             rest_length= rest_lenth
     #         )
 
+    dataset, labels = dataset_ti_alpha.load_train_dataset()
+    dataset = dataset_ti_alpha.remove_silence(dataset=dataset)
 
     # load projected dataset
-    dataset_after_projection = []
-    labels_after_projection = []
+    dataset_after_projection = dataset
+    labels_after_projection = labels
 
-    projected_training_data_m4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/m4_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_f4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/f4_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf5_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf5_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf1_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf1_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf2_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf2_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf3_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf3_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf6_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf6_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf7_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf7_128_projections_elec3_limited_cv_with_rest/"
-    projected_training_data_mANDf8_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf8_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_m4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/m4_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_f4_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/f4_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf5_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf5_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf1_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf1_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf2_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf2_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf3_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf3_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf6_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf6_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf7_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf7_128_projections_elec3_limited_cv_with_rest/"
+    # projected_training_data_mANDf8_path = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/mANDf8_128_projections_elec3_limited_cv_with_rest/"
 
 
 
-    dataset_paths = (
-                    # projected_training_data_m4_path, 
-                    # projected_training_data_f4_path,
-                    # projected_training_data_mANDf5_path,
-                    # projected_training_data_mANDf1_path,
-                    # projected_training_data_mANDf2_path,
-                    # projected_training_data_mANDf3_path,
-                    # projected_training_data_mANDf6_path,
-                    projected_training_data_mANDf7_path,
-                    projected_training_data_mANDf8_path
-                    )
+    # dataset_paths = (
+    #                 # projected_training_data_m4_path, 
+    #                 # projected_training_data_f4_path,
+    #                 # projected_training_data_mANDf5_path,
+    #                 # projected_training_data_mANDf1_path,
+    #                 # projected_training_data_mANDf2_path,
+    #                 # projected_training_data_mANDf3_path,
+    #                 # projected_training_data_mANDf6_path,
+    #                 projected_training_data_mANDf7_path,
+    #                 projected_training_data_mANDf8_path
+    #                 )
 
-    for subdir, _, files in chain.from_iterable(os.walk(path) for path in dataset_paths):
-        for file in files:
-            if file[0] == 'd':
-                temp = np.load(os.path.join(subdir, file))
-                for i in range(np.shape(temp)[0]):
-                    dataset_after_projection.append(temp[i])
-            elif file[0] == 'l':
-                temp = np.load(os.path.join(subdir, file)) 
-                for i in range(np.shape(temp)[0]):
-                    labels_after_projection.append(temp[0])
+    # for subdir, _, files in chain.from_iterable(os.walk(path) for path in dataset_paths):
+    #     for file in files:
+    #         if file[0] == 'd':
+    #             temp = np.load(os.path.join(subdir, file))
+    #             for i in range(np.shape(temp)[0]):
+    #                 dataset_after_projection.append(temp[i])
+    #         elif file[0] == 'l':
+    #             temp = np.load(os.path.join(subdir, file)) 
+    #             for i in range(np.shape(temp)[0]):
+    #                 labels_after_projection.append(temp[0])
 
 
     # low pass filter
     for i in range(len(dataset_after_projection)):
         freq = np.fft.rfftfreq(n=len(dataset_after_projection[i]), d=1/12500)
-        f_transform = np.fft.rfft(dataset_after_projection[i][:,0])
+        f_transform = np.fft.rfft(dataset_after_projection[i])# [:,0])
         for j in range(len(freq)):
             if freq[j] >= 20:
                 f_start = j

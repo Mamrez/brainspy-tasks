@@ -4,7 +4,7 @@ threshold_parameter:
   0.5 # This variable is only used for VC Dimension and Capacity experiments. It determines what the threshold will be by
   # Applying the following formula: 1 - (threshold_parameter / current_dimension)
 max_attempts:
-  20 # It is sometimes the case that the boolean gate behaviour is not found on a single run,
+  100 # It is sometimes the case that the boolean gate behaviour is not found on a single run,
   #This variable specifies the number of attempts that will use in order to try to find a particular gate on the DNPU.
 results_dir:
   "tmp/comparator" # It determines where the results of the experiments will be saved.

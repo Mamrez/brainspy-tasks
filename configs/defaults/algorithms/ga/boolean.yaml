@@ -6,7 +6,7 @@ epochs: 100 # Number of generations that will be used for the algorithm. (Number
 partition: # List with two elements.
   - 4 # The first element indicates the number of genomes (control voltage combinations) that will not be mutated in each generation.
   - 22 # The second element indicates the total number of genomes, when summing it with the first element.
-stop_threshold: 1.0 # Fitness function (criterion) score limit at which the algorithm stops when reached. By default 1.0 (deactivated)
+stop_threshold: 0.9 # Fitness function (criterion) score limit at which the algorithm stops when reached. By default 1.0 (deactivated)
 # generange: # Optimal operation range for activation electrodes. This is used for creating genes (control voltages) that are always between the specified range.
 #   # When using a surrogate model, it is not necessary to declare them, as this information is taken directly from the info dictionary. If this key is present, it will override that of the info dictionary:
 #   [

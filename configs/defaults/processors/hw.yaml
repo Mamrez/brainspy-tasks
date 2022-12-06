@@ -30,13 +30,13 @@ driver:
     activation_instrument: cDAQ2Mod3
     activation_channels: [0,1,2,3,4,5,7] # # Analogue output channels of DAC
     activation_voltage_ranges: [
-        [-1.6,  1.6],
-        [-1.6,  1.6],
-        [-1.6,  1.6], 
-        [-1.6,  1.6],
-        [-1.6,  1.6],
-        [-1.6,  1.6],
-        [-1.6,  1.6]
+        [-1.9,  1.9],
+        [-1.9,  1.9],
+        [-1.9,  1.9], 
+        [-1.9,  1.9],
+        [-1.9,  1.9],
+        [-1.9,  1.9],
+        [-1.9,  1.9]
       ]  
     activation_channel_mask: [1,1,1,1,1,1,1]
     readout_instrument: cDAQ2Mod1

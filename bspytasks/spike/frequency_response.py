@@ -48,9 +48,11 @@ def chirp_analysis(
                     stop_freq,
                     num_projections,
                     driver,
-                    chirp_signal_method):
+                    chirp_signal_method,
+                    repetitions = 3,
+                    rest_length = 8000):
 
-    meas_input = np.zeros((7, int(2 * slope_length + T * fs)))
+    meas_input = np.zeros((7, int(rest_length + 2 * slope_length + T * fs)))
     t = np.linspace(0, T, int(T * fs))
     outputs = []
     for i in range(num_projections):
@@ -60,27 +62,55 @@ def chirp_analysis(
                             t1 = T,
                             f1 = stop_freq,
                             method= chirp_signal_method,
-                            phi = 0)
-        meas_input[3, slope_length:-slope_length] = chirp_signal
+                            phi = 90)
+        chirp_signal_tilde = (start_freq / T) * np.exp(-t/T) * np.flip(chirp_signal)
+        meas_input[3, rest_length + slope_length:-slope_length] = 1.2 * chirp_signal
         if i != 0:
             meas_input = set_random_control_voltages(
                                             meas_input=meas_input,
                                             dnpu_control_indeces=[0, 1, 2, 4, 5, 6],
                                             slop_length=slope_length,
-                                            magnitudes=[-1.0, 0.5]
+                                            magnitudes=[-.85, .85]
             )
-        outputs.append(driver.forward_numpy(meas_input.T))    
+        for j in range(repetitions):
+            outputs.append(driver.forward_numpy(meas_input.T))    
     driver.close_tasks()
 
     # f_freqs = np.fft.rfftfreq(len(chirp_signal), d = 1/12500)
     # fig2, ax2 = plt.subplots(subplot_kw={'projection': '3d'})
     # specgram3d(outputs, srate=12500, ax=ax2, slope_length=slope_length)
 
+    
     plt.figure()
+    # plt.gca().set_xlim(0, 600)
     plt.xscale("log")
-    plt.yscale("log")
-    freqs = np.fft.rfftfreq(len(outputs[0][slope_length:-slope_length,0]), d=1/12500)    
-    plt.plot(freqs, np.abs(np.fft.rfft(outputs[1][slope_length:-slope_length,0])))
+    freqs = np.fft.rfftfreq(len(chirp_signal), 1/25000)
+    (s, f) = plt.psd(chirp_signal/20, Fs=25000, NFFT=int(2 ** np.ceil(np.log2(len(chirp_signal)))))
+    for i in range(num_projections):
+        signal = outputs[i][slope_length+rest_length:-slope_length,0] - np.average(outputs[i][slope_length+rest_length-500:slope_length+rest_length-100,0])
+        (s, f) = plt.psd(signal/20, Fs=25000, NFFT=int(2 ** np.ceil(np.log2(len(signal)))))
+
+    threshold = 6.02 * 16 + 1.76
+    threshold += 10 * np.log(fs/2)
+    threshold = np.linspace(-threshold, -threshold, len(f))
+    plt.plot(threshold)
+    plt.show()
+
+    # plt.figure()
+    # # plt.gca().set_xlim(0, 600)
+    # plt.xscale("log")
+    # s, f = scipy.signal.welch(chirp_signal/20, fs=25000, nperseg=len(chirp_signal))
+    # plt.plot(s, 10 * np.log(f))
+    # for i in range(num_projections):
+    #     signal = outputs[i][slope_length+rest_length:-slope_length,0] - np.average(outputs[i][slope_length+rest_length-500:slope_length+rest_length-100,0])
+    #     s, f = scipy.signal.welch(signal/20, fs=25000, nperseg=len(signal))
+    #     plt.plot(s, 10*np.log(f))
+
+    # # threshold = np.linspace(-136.06, -136.06, len(f))
+    # plt.plot(threshold)
+    
+
+    print("")
 
 
     # for i in range(len(outputs)):
@@ -158,18 +188,20 @@ if __name__ == '__main__':
 
     # np.random.seed(0)  
 
-    configs = load_configs('configs/defaults/processors/hw.yaml')
+    configs = load_configs('configs/defaults/processors/hw_freq_analysis.yaml')
     driver = get_driver(configs=configs["driver"])
+    # configs['driver']['instruments_setup']['activation_sampling_frequency'] = 62500
 
     chirp_analysis(
-                    slope_length=12500,
-                    T= 2,
-                    fs= 12500,
-                    start_freq= 60,
-                    stop_freq= 6000,
-                    num_projections= 4,
+                    slope_length=4000,
+                    T= 5,
+                    fs= 25000,
+                    start_freq= 10,
+                    stop_freq= 300,
+                    num_projections= 5,
                     driver=driver,
-                    chirp_signal_method = 'logarithmic'
+                    chirp_signal_method = 'logarithmic',
+                    repetitions = 1
     )
 
     # bode_analysis(
