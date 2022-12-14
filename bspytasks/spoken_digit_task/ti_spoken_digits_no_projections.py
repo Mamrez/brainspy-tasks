@@ -11,6 +11,8 @@ from torch.utils.data import TensorDataset, DataLoader, ConcatDataset, SubsetRan
 import numpy as np
 import gc, os, scipy, sys
 
+import librosa
+
 from itertools import chain
 
 from torchvision import transforms
@@ -77,8 +79,8 @@ class ConvLayer(torch.nn.Module):
     def __init__(self, num_classes, down_sample_no) -> None:
         super(ConvLayer, self).__init__()
         self.kernel_size = 256
-        self.stride = 16
-        self.out_channel = 8
+        self.stride = 4
+        self.out_channel = 64
         self.conv1 = torch.nn.Conv1d(
                                     in_channels     =   1,
                                     out_channels    =   self.out_channel ,
@@ -87,8 +89,8 @@ class ConvLayer(torch.nn.Module):
         )
         self.relu = torch.nn.ReLU()
         self.flat = torch.nn.Flatten()
-        self.fc1   = torch.nn.Linear(self.out_channel  * int((down_sample_no - self.kernel_size)/self.stride + 1), 256)
-        self.fc2 = torch.nn.Linear(256, num_classes)
+        self.fc1   = torch.nn.Linear(self.out_channel  * int((down_sample_no - self.kernel_size)/self.stride + 1), 512)
+        self.fc2 = torch.nn.Linear(512, num_classes)
     
     def forward(self, x):
         out = self.conv1(x.reshape(batch_size, 1, down_sample_no))
@@ -102,23 +104,18 @@ class ConvLayer(torch.nn.Module):
 
 class ToTensor(object):
     def __call__(self, sample) -> object:
-        audio_data, audio_label, projection_idx = sample['audio_data'], sample['audio_label'], sample['projection_idx']
+        audio_data, audio_label = sample['audio_data'], sample['audio_label']
         
         return {
             'audio_data'        : torch.tensor(audio_data, dtype=torch.float),
             'audio_label'       : torch.tensor(np.asarray(audio_label, dtype=np.float32), dtype=torch.float),
-            'projection_idx'    : torch.tensor(np.asarray(projection_idx, dtype=np.float32), dtype=torch.float)
         }
 
-class ProjectedAudioDataset(Dataset):
+class AudioDataset(Dataset):
     def __init__(
                 self, 
-                data_dirs, 
+                root_dir, 
                 transform, 
-                num_projections,
-                top_projections,
-                slope_length,
-                rest_length,
                 num_downsample,
                 downsample_method
                 ) -> None:
@@ -127,58 +124,39 @@ class ProjectedAudioDataset(Dataset):
         self.std = 0.
 
         self.transform = transform
-        self.num_downsample = num_downsample
 
         self.dataset_list = []
         self.label_list = []
 
         self.max_length = 0
-        self.min_legnth = np.inf
-        self.lengths = []
 
         # Loading dataset to memory
         print("Loading data to memory ...")
 
-        for subdir, _, files in chain.from_iterable(
-            os.walk(path) for path in data_dirs
-        ):
-            for file in files:
-                if file[0] == 'd':
-                    tmp = np.load(os.path.join(subdir, file))
-                    assert num_projections == len(tmp), "Number of projections should be consistent with number of projected data"
-                    for i in range(0, num_projections):
-                        data = tmp[i][slope_length + rest_length : -slope_length, 0]
-                        avg = np.mean(
-                            tmp[i][slope_length + rest_length - 100 : slope_length + rest_length, 0]
-                        )
-                        if top_projections != None:
-                            if i in top_projections:
-                                self.dataset_list.append(np.append((data - avg), i))
-                        else:
-                            if len(data) < 10000 and len(data) > 2000:
-                                self.dataset_list.append(np.append((data - avg), i))
+        for subdir, _, files in os.walk(root_dir):
+            if subdir[-2:] == 'f1' or subdir[-2:] == 'f2' or subdir[-2:] == 'f3' or subdir[-2:] == 'f4' or subdir[-2:] == 'f5':
+                for file in files:
+                    if subdir[-7:-3] == 'test':
+                        data, _ = librosa.load(os.path.join(subdir, file), sr=12500,dtype=np.float32)
+                        label = np.float32(file[1])
                         if len(data) > self.max_length:
                             self.max_length = len(data)
-                        if len(data) < self.min_legnth:
-                            self.min_legnth = len(data)
-                        self.lengths.append(len(data))
-                elif file[0] == 'l':
-                    tmp = np.load(os.path.join(subdir, file))
-                    assert num_projections == len(tmp), "Number of projections should be consisten with number of projected label"
-                    for i in range(0, num_projections):
-                        if top_projections != None:
-                            if i in top_projections:
-                                self.label_list.append(tmp[i])
-                        else:
-                            self.label_list.append(tmp[i])
-                else:
-                    sys.exit("Unknown type of data found in dataset!")
+                        self.dataset_list.append(data)
+                        self.label_list.append(label)
+                    elif subdir[-7:-2] == 'train':
+                        data, _ = librosa.load(os.path.join(subdir, file), sr=12500,dtype=np.float32)
+                        label = np.float32(file[1])
+                        if len(data) > self.max_length:
+                            self.max_length = len(data)
+                        self.dataset_list.append(data)
+                        self.label_list.append(label)
+
         
         self.len_dataset = len(self.dataset_list)
         self.dataset_numpy = np.zeros((
             np.shape(self.dataset_list)[0],
             # + 1 for keep tracking of the projection index
-            num_downsample + 1
+            num_downsample
         ))
         self.label_numpy = np.zeros((
             self.len_dataset
@@ -186,59 +164,45 @@ class ProjectedAudioDataset(Dataset):
 
         if downsample_method == 'variable':
             for i in range(0, self.len_dataset):
-                projection_idx = self.dataset_list[i][-1]
-                data = self.dataset_list[i][:-1]
+                data = self.dataset_list[i]
                 idx = np.arange(0, len(data), dtype=int)
                 idx = np.sort(np.random.choice(idx, num_downsample))
-                self.dataset_numpy[i] = np.append(
-                    data[idx],
-                    projection_idx
-                )
+                self.dataset_numpy[i] = data[idx]
                 self.label_numpy[i] = self.label_list[i]
         elif downsample_method == 'zero_pad':
             idx = np.arange(0, self.max_length, dtype=int)
             idx = np.sort(np.random.choice(idx, num_downsample))
             for i in range(0, self.len_dataset):
-                projection_idx = self.dataset_list[i][-1]
                 self.dataset_list[i] = np.pad(
-                    self.dataset_list[i][:-1], (0, self.max_length - len(self.dataset_list[i][:-1])), 'constant'
+                    self.dataset_list[i], (0, self.max_length - len(self.dataset_list[i])), 'constant'
                 )
-                self.dataset_list[i] = self.dataset_list[i][idx]
-                self.dataset_numpy[i] = np.append(
-                    self.dataset_list[i],
-                    projection_idx
-                )
+                # self.dataset_list[i] = self.dataset_list[i][idx]
+                self.dataset_numpy[i] = self.dataset_list[i][idx]
                 self.label_numpy[i] = self.label_list[i]
         elif downsample_method == 'zero_pad_sym':
             idx = np.arange(0, self.max_length, dtype=int)
             idx = np.sort(np.random.choice(idx, num_downsample))
             for i in range(0, self.len_dataset):
-                projection_idx = self.dataset_list[i][-1]
                 self.dataset_list[i] = np.pad(
-                    self.dataset_list[i][:-1], pad_width= (self.max_length - len(self.dataset_list[i][:-1]))//2
+                    self.dataset_list[i], pad_width= (self.max_length - len(self.dataset_list[i]))//2
                 )
-                self.dataset_list[i] = self.dataset_list[i][idx]
-                self.dataset_numpy[i] = np.append(
-                    self.dataset_list[i],
-                    projection_idx
-                )
+                # self.dataset_list[i] = self.dataset_list[i][idx]
+                self.dataset_numpy[i] = self.dataset_list[i][idx]
                 self.label_numpy[i] = self.label_list[i]
         else:
             print("Downsample method UNKNOWN!")
         
 
         # Calculating mean and std
-        self.mean = np.average(self.dataset_numpy[:, :-1])
-        self.std  = np.std(self.dataset_numpy[:, :-1])
+        self.mean = np.average(self.dataset_numpy[:])
+        self.std  = np.std(self.dataset_numpy[:])
 
-        self.dataset_numpy[:, :-1] = ((self.dataset_numpy[:,:-1]) - self.mean)/self.std
+        self.dataset_numpy[:] = ((self.dataset_numpy[:]) - self.mean)/self.std
 
         print("Loading completed successfully!")
         print("Lenght of dataset: ", self.len_dataset)
         print("---------------------------------------------------")
         print("Mean and Standard deviation of the dataset are: ", self.mean, "and ", self.std)
-        print("Max length of data: ", self.max_length, "and, min length of data: ", self.min_legnth)
-        self.max_length = 8000
 
 
     def __mean_std__(self):
@@ -255,14 +219,12 @@ class ProjectedAudioDataset(Dataset):
         if isinstance(index, torch.Tensor):
             index = index.tolist()
         
-        audio_data = self.dataset_numpy[index, :-1]
+        audio_data = self.dataset_numpy[index]
         audio_label = self.label_numpy[index]
-        projection_idx = self.dataset_numpy[index, -1]
 
         sample = {
             'audio_data'        : audio_data,
             'audio_label'       : audio_label,
-            'projection_idx'    : projection_idx
         }
 
         if self.transform:
@@ -281,7 +243,6 @@ def kfold_cross_validation(
         model,
         num_epoch,
         dataset,
-        num_projections,
         batch_size, 
         k_folds = 10,
     ):
@@ -551,90 +512,36 @@ def measurement(
 
 
 if __name__ == '__main__':
-    from brainspy.utils.io import load_configs
 
-    slope_length = 2000
-    rest_length = 10000
-
-    hidden_layer_size = 256
-    num_projections= 128
-    batch_size = 128
-    num_epoch = 15
+    hidden_layer_size = 1024
+    batch_size = 16
+    num_epoch = 50
     num_classes = 10
-    normalizing_dataset = True
-    train_with_all_projections = True
-    new_number_of_projetions = 64
-    zero_padding_downsample = True    
-    # np.random.seed(5) 
-    # configs = load_configs('configs/defaults/processors/hw.yaml')
-    # measurement(
-    #             configs             =   configs,
-    #             num_projections     =   num_projections,
-    #             dnpu_input_index    =   3,
-    #             dnpu_control_indeces=   [0, 1, 2, 4, 5, 6],
-    #             slope_length        =   slope_length,
-    #             rest_length         =   rest_length
-    #         )
 
-    # load projected dataset
-    dataset_train_val_after_projection = []
-    label_train_val_after_projection = []
-    dataset_test_after_projection = []
-    label_test_after_projection = []
-
-    projected_train_val_data_arsenic_f4 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/train_val/f4/"
-    projected_test_data_arsenic_f4 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/test/f4/"
-    projected_train_val_data_arsenic_f5 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/train_val/f5/"
-    projected_test_data_arsenic_f5 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/test/f5/"
-    projected_train_val_data_arsenic_f6 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/train_val/f6/"
-    projected_test_data_arsenic_f6 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/test/f6/"
-    projected_train_val_data_arsenic_f7 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/train_val/f7/"
-    projected_test_data_arsenic_f7 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/test/f7/"
-    projected_train_val_data_arsenic_f8 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/train_val/f8/"
-    projected_test_data_arsenic_f8 = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits_arsenic/test/f8/"
-
-    empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/ti_spoken_digits/test/empty/"
-
-
-    dataset_path = (
-        projected_train_val_data_arsenic_f4,
-        projected_train_val_data_arsenic_f5,
-        projected_train_val_data_arsenic_f6,
-        projected_train_val_data_arsenic_f7,
-        projected_train_val_data_arsenic_f8,
-        projected_test_data_arsenic_f4,
-        projected_test_data_arsenic_f5,
-        projected_test_data_arsenic_f6,
-        projected_test_data_arsenic_f7,
-        projected_test_data_arsenic_f8
-    )
+    root_dir_ti_46 = "C:/Users/Mohamadreza/Documents/ti_spoken_digits"
 
     transform = transforms.Compose([
             ToTensor()
     ])
 
 
-    down_sample_no = 512
-    dataset = ProjectedAudioDataset(
-                data_dirs           = dataset_path,
-                transform           = transform,
-                num_projections     = 128,
-                top_projections     = None,
-                slope_length        = slope_length,
-                rest_length         = rest_length,
-                num_downsample      = down_sample_no,
-                downsample_method  = 'zero_pad_sym' # 'variable', 'zero_pad', 'zero_pad_sym'
+    down_sample_no = 2048
+    dataset = AudioDataset(
+                root_dir           = root_dir_ti_46,
+                transform          = transform,
+                num_downsample     = down_sample_no,
+                downsample_method  = 'zero_pad' # 'variable', 'zero_pad', 'zero_pad_sym'
                 # NOTE: Variable length zero padding is logically incorrect,
                 # the reason is that it is basically means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
     )
     
 
     classification_layer = NNmodel(
-        NNtype= 'Conv', # 'Conv', 'FC', 'Linear'
+        NNtype= 'FC', # 'Conv', 'FC', 'Linear'
         down_sample_no= down_sample_no,
         hidden_layer_size = hidden_layer_size,
         num_classes= 10,
-        dropout_prob= 0.5,
+        dropout_prob= 0.0,
     )
 
     print("Number of learnable parameters are: ", sum(p.numel() for p in classification_layer.parameters()))
@@ -644,7 +551,6 @@ if __name__ == '__main__':
         model           = classification_layer,
         num_epoch       = num_epoch,
         dataset         = dataset,
-        num_projections = num_projections,
         batch_size      = batch_size,
         k_folds         = 10      
     )
