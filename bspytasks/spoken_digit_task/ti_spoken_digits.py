@@ -100,6 +100,82 @@ class ConvLayer(torch.nn.Module):
         out = torch.log_softmax(out, dim=1)
         return out
 
+class complexConvLayer(torch.nn.Module):
+    def __init__(self, num_classes, down_sample_no) -> None:
+        super(complexConvLayer, self).__init__()
+        self.batch_norm = torch.nn.BatchNorm1d(num_features=1)
+        self.layer_1 = torch.nn.Sequential(
+            torch.nn.BatchNorm1d(1),
+            torch.nn.Conv1d(in_channels=1, out_channels=32 ,kernel_size=3, stride=1),
+            torch.nn.SiLU()
+        )
+        self.layer_2 = torch.nn.Sequential(
+            torch.nn.Conv1d(in_channels=32, out_channels=32, kernel_size=3, stride=1),
+            torch.nn.SiLU()
+        )
+        self.maxpool_1 = torch.nn.MaxPool1d(2, 1)
+        self.layer_3 = torch.nn.Sequential(
+            torch.nn.BatchNorm1d(32),
+            torch.nn.Conv1d(32, 64, 3, 1),
+            torch.nn.SiLU()
+        )
+        self.layer_4 = torch.nn.Sequential(
+            torch.nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            torch.nn.SiLU()
+        )
+        self.maxpool_2 = torch.nn.MaxPool1d(2, 1)
+        self.layer_5 = torch.nn.Sequential(
+            torch.nn.BatchNorm1d(64),
+            torch.nn.Conv1d(64, 128, 3, 1),
+            torch.nn.SiLU()
+        )
+        self.layer_6 = torch.nn.Sequential(
+            torch.nn.Conv1d(in_channels=128, out_channels=128, kernel_size=3, stride=1),
+            torch.nn.SiLU()
+        )
+        self.maxpool_3 = torch.nn.MaxPool1d(2, 1)
+        self.layer_7 = torch.nn.Sequential(
+            torch.nn.BatchNorm1d(128),
+            torch.nn.Conv1d(128, 256, 3, 1),
+            torch.nn.SiLU()
+        )
+        self.layer_8 = torch.nn.Sequential(
+            torch.nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=1),
+            torch.nn.SiLU()
+        )
+        self.maxpool_4 = torch.nn.MaxPool1d(2, 1)
+        self.maxpool_flat = torch.nn.Sequential(
+            torch.nn.MaxPool1d(12, 1),
+            torch.nn.Flatten()
+        )
+        self.linear_1 = torch.nn.Sequential(
+            torch.nn.Linear(256, 128),
+            torch.nn.SiLU()
+        )
+        self.linear_2 = torch.nn.Sequential(
+            torch.nn.Linear(128, 10),
+            torch.nn.SiLU()
+        )
+    
+    def forward(self, x):
+        out = self.batch_norm(x)
+        out = self.layer_1(out.reshape(batch_size, 1, down_sample_no))
+        out = self.layer_2(out)
+        out = self.maxpool_1(out)
+        out = self.layer_3(out)
+        out = self.layer_4(out)
+        out = self.maxpool_2(out)
+        out = self.layer_5(out)
+        out = self.layer_6(out)
+        out = self.maxpool_3(out)
+        out = self.layer_7(out)
+        out = self.layer_8(out)
+        out = self.maxpool_4(out)
+        out = self.maxpool_flat(out)
+        out = self.linear_1(out)
+        out = self.linear_2(out)
+
+
 class ToTensor(object):
     def __call__(self, sample) -> object:
         audio_data, audio_label, projection_idx = sample['audio_data'], sample['audio_label'], sample['projection_idx']
@@ -630,7 +706,7 @@ if __name__ == '__main__':
     
 
     classification_layer = NNmodel(
-        NNtype= 'Conv', # 'Conv', 'FC', 'Linear'
+        NNtype= 'Linear', # 'Conv', 'FC', 'Linear'
         down_sample_no= down_sample_no,
         hidden_layer_size = hidden_layer_size,
         num_classes= 10,
