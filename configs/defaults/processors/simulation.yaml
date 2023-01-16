@@ -1,14 +1,14 @@
 processor_type: "simulation" # Possible values are: simulation, simulation_debug, cdaq_to_cdaq, and cdaq_to_nidaq
-model_dir: "smg_roomTemp_device_2.pt"
+model_dir: "smg_boron_30nm_lorenzo.pt"
 input_indices: # It specifies the indices of the activation data array that will be considered as inputs
+  - 1
   - 2
-  - 4
-# electrode_effects:
-#   #  amplification: [28.5] # It always has to be a list
-#   clipping_value: None
-#noise:
-#  type: gaussian
-#  variance: 0.65
+electrode_effects:
+  amplification: [28.5] # It always has to be a list
+  clipping_value: None
+  #noise:
+  #  type: gaussian
+  #  variance: 0.65
 waveform:
-  plateau_length: 1
-  slope_length: 0
+  plateau_length: 10
+  slope_length: 10

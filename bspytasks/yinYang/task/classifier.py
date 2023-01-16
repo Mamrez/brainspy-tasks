@@ -4,26 +4,19 @@ import torch
 import pickle as p
 import matplotlib.pyplot as plt
 
-from bspytasks.ring.data import (
-    RingDatasetGenerator,
-    BalancedSubsetRandomSampler,
-    RingDatasetLoader,
-    split,
-)
 from brainspy.utils.io import create_directory, create_directory_timestamp
 from bspytasks.utils.io import save
 from brainspy.utils.manager import get_optimizer
 
-# from brainspy.algorithms.modules.performance.accuracy import (
-#     get_accuracy,
-#     plot_perceptron,
-# )
-# from brainspy.algorithms.modules.signal import pearsons_correlation
+from bspytasks.yinYang.data import YinYangDataset
 
+
+# These two lines should be added for other bspy tasks
 from brainspy.utils.performance.accuracy import (get_accuracy, plot_perceptron)
 from brainspy.utils.signal import pearsons_correlation
 
-def ring_task(
+
+def yinYang_task(
     configs,
     dataloaders,
     custom_model,
@@ -46,9 +39,13 @@ def ring_task(
         is_main=is_main,
         save_data=save_data,
     )
+
     # criterion = get_criterion(configs['algorithm'])
-    model = TorchUtils.format(custom_model(configs['processor']))
+    model = custom_model(configs['processor'])
+    model = TorchUtils.format(model)    
+    
     optimizer = get_optimizer(model, configs["algorithm"])
+
     # algorithm = get_algorithm(configs['algorithm'])
     model, train_data = algorithm(
         model,
@@ -56,7 +53,7 @@ def ring_task(
         criterion,
         optimizer,
         configs["algorithm"],
-        logger=logger,
+        # logger=logger,
         save_dir=reproducibility_dir,
     )
 
@@ -69,8 +66,10 @@ def ring_task(
         save_dir=results_dir,
         name="train",
     )
+
     results["train_results"]["performance_history"] = train_data[
         "performance_history"][0]
+
     if len(dataloaders[1]) > 0:
         results["dev_results"] = postprocess(
             configs["accuracy"],
@@ -82,8 +81,10 @@ def ring_task(
             save_dir=results_dir,
             name="validation",
         )
+        
         results["dev_results"]["performance_history"] = train_data[
             "performance_history"][1]
+
     if len(dataloaders[2]) > 0:
         results["test_results"] = postprocess(
             configs["accuracy"],
@@ -95,6 +96,7 @@ def ring_task(
             save_dir=results_dir,
             name="test",
         )
+
     if save_data:
         close(model, results, configs, reproducibility_dir, results_dir)
 
@@ -131,26 +133,19 @@ def close(model, results, configs, reproducibility_dir, results_dir):
     if model.is_hardware() and "close" in dir(model):
         model.close()
 
+def get_yinYang_data():
 
-def get_ring_data(configs, transforms=None, data_dir=None):
-    # Returns dataloaders and split indices
-    if configs["data"]["load"] is False:
-        dataset = RingDatasetGenerator(configs["data"]["sample_no"],
-                                       configs["data"]["gap"],
-                                       transforms=transforms,
-                                       save_dir=data_dir)
-    else:
-        dataset = RingDatasetLoader(configs["data"]["load"],
-                                    transforms=transforms)
-    configs['data']['gap'] = dataset.gap
-    dataloaders = split(dataset,
-                        configs["data"]["batch_size"],
-                        sampler=BalancedSubsetRandomSampler,
-                        num_workers=configs["data"]["worker_no"],
-                        split_percentages=configs["data"]["split_percentages"],
-                        pin_memory=configs["data"]["pin_memory"])
-    return dataloaders
+    batch_size = 20
 
+    dataset_train = YinYangDataset(size=10000, seed=42)
+    dataset_validation = YinYangDataset(size=1000, seed=41)
+    dataset_test = YinYangDataset(size=1000, seed=40)
+
+    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=20)
+    val_loader = torch.utils.data.DataLoader(dataset_validation)
+    test_loader =torch.utils.data. DataLoader(dataset_test)
+
+    return [train_loader, val_loader, test_loader]
 
 def postprocess(configs,
                 dataset,
@@ -246,11 +241,11 @@ def plot_results(results, plots_dir=None, show_plots=False, extension="png"):
     plt.figure()
     plt.title(f"Inputs (V) \n {results['gap']} gap (-1 to 1 scale)",
               fontsize=12)
-    plot_inputs(results["train_results"], "Train", ["blue", "cornflowerblue"])
+    plot_inputs(results["train_results"], "Train")
     if "dev_results" in results:
-        plot_inputs(results["dev_results"], "Dev", ["orange", "bisque"])
+        plot_inputs(results["dev_results"], "Dev")
     if "test_results" in results:
-        plot_inputs(results["test_results"], "Test", ["green", "springgreen"])
+        plot_inputs(results["test_results"], "Test")
     plt.legend()
     # if type(results['dev_inputs']) is torch.Tensor:
     if plots_dir is not None:
@@ -274,7 +269,7 @@ def plot_output(results, label, plots_dir=None, extension="png"):
 
 def plot_inputs(results,
                 label,
-                colors=["b", "r"],
+                colors=["b", "r", "g"],
                 plots_dir=None,
                 extension="png"):
     # if type(results['dev_inputs']) is torch.Tensor:
@@ -299,6 +294,13 @@ def plot_inputs(results,
         label="Class 1 (" + label + ")",
         cmap=colors[1],
     )
+    plt.scatter(
+        inputs[targets == 2][:, 0],
+        inputs[targets == 2][:, 1],
+        marker="o",
+        label = "Class 2 (" + label + ")",
+        cmap=colors[2]
+    )
 
 
 if __name__ == "__main__":
@@ -308,15 +310,16 @@ if __name__ == "__main__":
     from brainspy.utils.io import load_configs
     from bspytasks.utils.transforms import DataToTensor
 
-    from bspytasks.models.default_ring import DefaultCustomModel
+    from bspytasks.models.default_yinYang import SingleDNPUCustomModel as DefaultCustomModel
+    # from bspytasks.models.default_yinYang import DefaultCustomModel
 
-    configs = load_configs("configs/ring.yaml")
-
-    #data_transforms = tfms.Compose([DataToTensor(device=torch.device('cpu'))])
+    configs = load_configs("configs/yinYang.yaml")
 
     criterion = manager.get_criterion(configs["algorithm"]['criterion'])
     algorithm = manager.get_algorithm(configs["algorithm"]['type'])
 
-    dataloaders = get_ring_data(configs)  #, data_transforms)
+    dataloaders = get_yinYang_data()
 
-    ring_task(configs, dataloaders, DefaultCustomModel, criterion, algorithm)
+    yinYang_task(configs, dataloaders, DefaultCustomModel, criterion, algorithm)
+
+    print("")

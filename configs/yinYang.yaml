@@ -1,0 +1,31 @@
+results_dir: "tmp/yinYang"
+runs: 1500
+start_gap: 0.4
+stop_gap: 0.00825
+data:
+  gap: 0.5
+  load: false # If load is false, it generates a new dataset. If load is a path to the data, it loads it to the data
+  batch_size: 128
+  worker_no: 0 # Rule of thumb, 4 per GPU
+  pin_memory: True
+accuracy:
+  epochs: 150
+  learning_rate: 0.005
+  batch_size: 128
+algorithm: !include defaults/algorithms/ga/yinYang.yaml
+processor: 
+  processor_type: "simulation" # Possible values are: simulation, simulation_debug, cdaq_to_cdaq, and cdaq_to_nidaq
+  model_dir: "training_data.pt"
+  input_indices: # It specifies the indices of the activation data array that will be considered as inputs
+    - 1
+    - 2
+  electrode_effects:
+    amplification: [28.5] # It always has to be a list
+    clipping_value: None
+    #noise:
+    #  type: gaussian
+    #  variance: 0.65
+  waveform:
+    plateau_length: 10
+    slope_length: 10
+

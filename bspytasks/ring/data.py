@@ -257,3 +257,8 @@ def balanced_permutation(len_indices):
         result.append(class0[i])
         result.append(class1[i])
     return torch.tensor(result, dtype=torch.int64)
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    print("")
