@@ -220,6 +220,143 @@ def bode_analysis(
     #     for j in range(len(sine_cycles)):
     #         plt.plot(sine_freqs_steps[j], outputs[i * num_projections + j, slope_length:-slope_length]/sine_cycles[j])
 
+def chirp_phase_analysis(
+    slope_length,
+    T,
+    fs,
+    start_freq,
+    stop_freq,
+    num_projections,
+    driver,
+    chirp_signal_method
+):
+
+    meas_input = np.zeros((7, int(2 * slope_length + T * fs)))
+
+    t = np.linspace(0, T, int(T * fs))
+
+    outputs = []
+    chirp_signal = chirp(
+                            t = t,
+                            f0 = start_freq,
+                            t1 = T,
+                            f1 = stop_freq,
+                            method= chirp_signal_method,
+                            phi = -90
+                        )
+    meas_input[3, slope_length:-slope_length] = chirp_signal
+
+    for i in range(num_projections):
+        if i != 0:
+            meas_input = set_random_control_voltages(
+                                            meas_input=             meas_input,
+                                            dnpu_control_indeces=   [0, 1, 2, 4, 5, 6],
+                                            slop_length=            slope_length,
+                                            magnitudes=             [-.25, .25]
+            )
+        outputs.append(driver.forward_numpy(meas_input.T))    
+    driver.close_tasks()
+
+    output = outputs[0][slope_length : -slope_length, 0]
+
+    plt.phase_spectrum(output, Fs=fs)
+
+    print("hi")
+
+def phase_diff(in1, in2, T, fs, freq):
+    corr = scipy.signal.correlate(in1, in2)
+    t_corr = np.linspace(-T, T, 2 * int(T * fs) - 1)
+
+    max_corr = np.argmax(corr)
+
+    phase_diff = 360. * freq * t_corr[max_corr]
+
+    # while(phase_diff > 180):
+    #     phase_diff -= 180
+
+    # while(phase_diff < -180):
+    #     phase_diff += 180
+
+
+    # phases = (phases + np.pi) % (2 * np.pi) - np.pi
+
+    phase_diff = (phase_diff + 180) % 360 - 180
+
+    return phase_diff
+
+def fixed_freq_phase_analysis_with_Marc(
+    slope_length,
+    rest_length,
+    T,
+    fs,
+    start_freq,
+    stop_freq,
+    freqs_no,
+    voltage_sweep,
+    driver
+):
+    meas_input = np.zeros((7, int(2 * slope_length + rest_length + T * fs)))
+    t = np.linspace(0, T, int(T * fs))
+
+    freqs = np.linspace(start_freq, stop_freq, freqs_no)
+
+    outputs = []
+    phase_diff_list = []
+    
+
+    # meas_input = set_random_control_voltages(
+    #     meas_input=             meas_input,
+    #     dnpu_control_indeces=   [0, 1, 2, 4, 5, 6],
+    #     slop_length=            slope_length,
+    #     magnitudes=             [-.25, .25]
+    # )
+
+    if voltage_sweep == False:
+        for i in range(0, freqs_no):
+            sin_wave = np.sin(2 * np.pi * freqs[i] * t)
+            meas_input[3, slope_length + rest_length : -slope_length] = sin_wave
+            tmp = driver.forward_numpy(meas_input.T)
+            outputs.append(tmp[slope_length + rest_length : - slope_length, 0])
+            phase_diff_list.append(
+                phase_diff(
+                    sin_wave,
+                    outputs[i],
+                    T,
+                    fs,
+                    freqs[i]
+                )
+            )
+        driver.close_tasks() 
+        plt.scatter(freqs, phase_diff_list)
+        plt.show()
+    elif voltage_sweep == True:
+        voltages = np.linspace(0., 0.8, freqs_no)
+        sin_wave = np.sin(2 * np.pi * 250 * t)
+        for i in range(0, len(voltages)):
+            ramp_1 = np.linspace(0, voltages[i], slope_length)
+            plateau = np.linspace(voltages[i], voltages[i], int(rest_length + T * fs))
+            ramp_2 = np.linspace(voltages[i], 0, slope_length)
+            meas_input[3, slope_length + rest_length : -slope_length] = sin_wave
+            meas_input[0,  :] = np.concatenate((ramp_1, plateau, ramp_2))
+            tmp = driver.forward_numpy(meas_input.T)
+            outputs.append(tmp[slope_length + rest_length : - slope_length, 0])
+            phase_diff_list.append(
+                phase_diff(
+                    sin_wave,
+                    outputs[i],
+                    T,
+                    fs,
+                    freqs[i]
+                )
+            )
+        driver.close_tasks() 
+        plt.scatter(voltages, phase_diff_list)
+        plt.show()
+
+        
+
+    print("hi")
+
 
 if __name__ == '__main__':
 
@@ -231,16 +368,39 @@ if __name__ == '__main__':
     configs = load_configs('configs/defaults/processors/hw.yaml')
     driver = get_driver(configs=configs["driver"])
 
-    chirp_analysis(
-                    slope_length=25000,
-                    T= 3,
-                    fs= 25000,
-                    start_freq= 10,
-                    stop_freq= 2000,
-                    num_projections= 5,
-                    driver=driver,
-                    chirp_signal_method = 'logarithmic' #'linear' 
+    fixed_freq_phase_analysis_with_Marc(
+        slope_length= 5000,
+        rest_length = 5000,
+        T= 0.5,
+        fs = 25000,
+        start_freq = 20,
+        stop_freq = 2000,
+        freqs_no = 20,
+        voltage_sweep= True,  
+        driver= driver,
     )
+
+    # chirp_phase_analysis(
+    #     slope_length= 10000,
+    #     T  = 3,
+    #     fs = 25000,
+    #     start_freq= 20,
+    #     stop_freq= 5000,
+    #     num_projections= 1,
+    #     driver= driver,
+    #     chirp_signal_method= 'linear'
+    # )
+
+    # chirp_analysis(
+    #                 slope_length=25000,
+    #                 T= 3,
+    #                 fs= 25000,
+    #                 start_freq= 10,
+    #                 stop_freq= 2000,
+    #                 num_projections= 5,
+    #                 driver=driver,
+    #                 chirp_signal_method = 'logarithmic' #'linear' 
+    # )
 
     # bode_analysis(
     #             slope_length= 12500,
