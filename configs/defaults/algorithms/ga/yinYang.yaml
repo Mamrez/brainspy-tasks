@@ -1,6 +1,6 @@
 type: genetic
 optimizer: genetic
-criterion: fisher
+criterion: corr_fit
 epochs: 100
 partition: # Genome partition
   - 4

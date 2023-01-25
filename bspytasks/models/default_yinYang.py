@@ -15,12 +15,12 @@ class SingleDNPUCustomModel(torch.nn.Module):
         processor = Processor(configs, model_data['info'],
                               model_data['model_state_dict'])
         self.dnpu = DNPU(processor=processor,
-                         data_input_indices=[[2,3]] *
+                         data_input_indices=[[0,6]] *
                          self.node_no,
                          forward_pass_type='vec')
         # Remember to add an input transformation, if required   
         # In this case, the example assumes that input data will be in a range from 0 to 1
-        self.dnpu.add_input_transform([0, 1])
+        self.dnpu.add_input_transform([-1, 1])
 
     def forward(self, x):
         x = self.dnpu(x)

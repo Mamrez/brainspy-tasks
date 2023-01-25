@@ -20,7 +20,7 @@ processor:
     - 1
     - 2
   electrode_effects:
-    amplification: [28.5] # It always has to be a list
+    amplification: [25] # It always has to be a list
     clipping_value: None
     #noise:
     #  type: gaussian

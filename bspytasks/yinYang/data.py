@@ -18,7 +18,7 @@ class YinYangDataset(Dataset):
         self.r_big = r_big
         self.__vals = []
         self.__cs = []
-        self.class_names = ['yin', 'yang', 'dot']
+        self.class_names = ['yin', 'yang' , 'dot']
         for i in range(size):
             # keep num of class instances balanced by using rejection sampling
             # choose class for this sample
@@ -83,16 +83,16 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
 
-    dataset_train = YinYangDataset(size=5000, seed=42)
+    dataset_train = YinYangDataset(size=10000, seed=42)
     dataset_validation = YinYangDataset(size=1000, seed=41)
     dataset_test = YinYangDataset(size=1000, seed=40)
 
     batchsize_train = 20
     batchsize_eval = len(dataset_test)
 
-    train_loader = DataLoader(dataset_train, batch_size=batchsize_train, shuffle=True)
-    val_loader = DataLoader(dataset_validation, batch_size=batchsize_eval, shuffle=True)
-    test_loader = DataLoader(dataset_test, batch_size=batchsize_eval, shuffle=False)
+    train_loader = DataLoader(dataset_train, batch_size=batchsize_train, shuffle=True, drop_last=True)
+    val_loader = DataLoader(dataset_validation, batch_size=batchsize_eval, shuffle=True, drop_last=True)
+    test_loader = DataLoader(dataset_test, batch_size=batchsize_eval, shuffle=False, drop_last=True)
 
     fig, axes = plt.subplots(ncols=3, sharey=True, figsize=(15, 8))
     titles = ['Training set', 'Validation set', 'Test set']

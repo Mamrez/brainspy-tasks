@@ -135,11 +135,9 @@ def close(model, results, configs, reproducibility_dir, results_dir):
 
 def get_yinYang_data():
 
-    batch_size = 20
-
-    dataset_train = YinYangDataset(size=10000, seed=42)
-    dataset_validation = YinYangDataset(size=1000, seed=41)
-    dataset_test = YinYangDataset(size=1000, seed=40)
+    dataset_train = YinYangDataset(size=5000, seed=42)
+    dataset_validation = YinYangDataset(size=500, seed=41)
+    dataset_test = YinYangDataset(size=500, seed=40)
 
     train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=20)
     val_loader = torch.utils.data.DataLoader(dataset_validation)

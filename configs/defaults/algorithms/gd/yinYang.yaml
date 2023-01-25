@@ -1,6 +1,6 @@
 type: "gradient"
 epochs: 200
 learning_rate: 0.001
-criterion: "fisher_fit"
+criterion: "accuracy_fit"
 optimizer: "adam"
 constraint_control_voltages: 'clip' # 'regul' or 'clip'
