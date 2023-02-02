@@ -397,13 +397,14 @@ def kfold_cross_validation(
 
         model.apply(reset_weights)
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr = 0.01, weight_decay = 0.15)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
+        optimizer = torch.optim.AdamW(model.parameters(), lr = 0.01, weight_decay = 1)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                                                    optimizer, 
                                                     max_lr = 0.01,
                                                     steps_per_epoch = int(len(trainloader)),
                                                     epochs = num_epoch,
                                                     anneal_strategy = 'linear'
-                                                )
+        )
 
         for epoch in range(0, num_epoch):
             if epoch % 10 == 0:
@@ -509,6 +510,10 @@ def kfold_cross_validation(
         print(f"Fold {key}: {value}%")
         sum += value
     print(f"Average accuracy: {sum / len(results.items())} %")
+    print("Saving model ... ")
+    torch.save(model.state_dict(), "saved_model.pt")
+
+    print(" ")
 
 def NNmodel(
     NNtype= 'LinearLayer',
@@ -632,10 +637,15 @@ if __name__ == '__main__':
     slope_length = 2000
     rest_length = 10000
 
-    hidden_layer_size = 256
+    down_sample_no = 256
+
+    hidden_layer_size = 128
     num_projections= 128
+
     batch_size = 128
-    num_epoch = 15
+
+    num_epoch = 25
+
     num_classes = 10
     normalizing_dataset = True
     train_with_all_projections = True
@@ -674,23 +684,21 @@ if __name__ == '__main__':
 
     dataset_path = (
         projected_train_val_data_arsenic_f4,
-        projected_train_val_data_arsenic_f5,
-        projected_train_val_data_arsenic_f6,
-        projected_train_val_data_arsenic_f7,
-        projected_train_val_data_arsenic_f8,
+        # projected_train_val_data_arsenic_f5,
+        # projected_train_val_data_arsenic_f6,
+        # projected_train_val_data_arsenic_f7,
+        # projected_train_val_data_arsenic_f8,
         projected_test_data_arsenic_f4,
-        projected_test_data_arsenic_f5,
-        projected_test_data_arsenic_f6,
-        projected_test_data_arsenic_f7,
-        projected_test_data_arsenic_f8
+        # projected_test_data_arsenic_f5,
+        # projected_test_data_arsenic_f6,
+        # projected_test_data_arsenic_f7,
+        # projected_test_data_arsenic_f8
     )
 
     transform = transforms.Compose([
             ToTensor()
     ])
 
-
-    down_sample_no = 512
     dataset = ProjectedAudioDataset(
                 data_dirs           = dataset_path,
                 transform           = transform,
@@ -710,7 +718,7 @@ if __name__ == '__main__':
         down_sample_no= down_sample_no,
         hidden_layer_size = hidden_layer_size,
         num_classes= 10,
-        dropout_prob= 0.5,
+        dropout_prob= 0.1,
     )
 
     print("Number of learnable parameters are: ", sum(p.numel() for p in classification_layer.parameters()))
