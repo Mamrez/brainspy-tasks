@@ -69,7 +69,6 @@ class FCLayer(torch.nn.Module):
         out = self.dropout(out)  
 
         out = self.fc2(out)
-        
         out = torch.log_softmax(out, dim=1)
         return out
 
@@ -199,8 +198,11 @@ class ProjectedAudioDataset(Dataset):
                 downsample_method
                 ) -> None:
 
-        self.mean = 0.
-        self.std = 0.
+        # EXTRACTED FROM TRAINING DATASET ONLY
+        self.mean = 0.01284
+        self.std = 1.02609
+
+        # self.mean, self.std = 0., 0.
 
         self.transform = transform
         self.num_downsample = num_downsample
@@ -227,12 +229,17 @@ class ProjectedAudioDataset(Dataset):
                         avg = np.mean(
                             tmp[i][slope_length + rest_length - 100 : slope_length + rest_length, 0]
                         )
+                        avg2 = np.mean(
+                            data
+                        )
                         if top_projections != None:
                             if i in top_projections:
-                                self.dataset_list.append(np.append((data - avg), i))
+                                self.dataset_list.append(np.append((data - avg2), i))
+                                # self.dataset_list.append(np.append(data, i))
                         else:
                             if len(data) < 10000 and len(data) > 2000:
-                                self.dataset_list.append(np.append((data - avg), i))
+                                self.dataset_list.append(np.append((data - avg2), i))
+                                # self.dataset_list.append(np.append(data, i))
                         if len(data) > self.max_length:
                             self.max_length = len(data)
                         if len(data) < self.min_legnth:
@@ -259,6 +266,34 @@ class ProjectedAudioDataset(Dataset):
         self.label_numpy = np.zeros((
             self.len_dataset
         ))
+
+        # Calculating mean and std
+        # self.mean = np.average(self.dataset_numpy[:, :-1])
+        # self.std  = np.std(self.dataset_numpy[:, :-1])
+        # # Normalizing dataset
+        # self.dataset_numpy[:, :-1] = ((self.dataset_numpy[:,:-1]) - self.mean)/self.std
+
+        # means = []
+        # stds = []
+
+        # for i in range(len(self.dataset_list)):
+        #     means.append(
+        #         np.mean(self.dataset_list[i])
+        #     )
+        #     stds.append(
+        #         np.std(self.dataset_list[i])
+        #     )
+
+        # self.mean = np.mean(means)
+        # # self.std = np.mean(stds)
+        # tmp = 0.
+        # for i in range(len(stds)):
+        #     tmp += stds[i]**2
+        # tmp /= len(stds)
+        # self.std = tmp ** 0.5
+
+        # for i in range(len(self.dataset_list)):
+        #     self.dataset_list[i] = (self.dataset_list[i] - self.mean)/self.std
 
         if downsample_method == 'variable':
             for i in range(0, self.len_dataset):
@@ -302,13 +337,6 @@ class ProjectedAudioDataset(Dataset):
         else:
             print("Downsample method UNKNOWN!")
         
-
-        # Calculating mean and std
-        self.mean = np.average(self.dataset_numpy[:, :-1])
-        self.std  = np.std(self.dataset_numpy[:, :-1])
-
-        self.dataset_numpy[:, :-1] = ((self.dataset_numpy[:,:-1]) - self.mean)/self.std
-
         print("Loading completed successfully!")
         print("Lenght of dataset: ", self.len_dataset)
         print("---------------------------------------------------")
@@ -352,6 +380,115 @@ def reset_weights(m):
             print("Reset trainable parameters of layer = ", layer)
             layer.reset_parameters()
 
+def train_and_test(
+        model,
+        num_epoch,
+        dataset,
+        batch_size,
+):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model.to(torch.float)
+    model.to(device)
+    model = torch.compile(model)
+    scaler = torch.cuda.amp.GradScaler(enabled=True)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    train_set, test_set = torch.utils.data.random_split(
+                            dataset,
+                            [
+                                int(0.8 * len(dataset)), 
+                                int(0.2 * len(dataset) + 1)
+                            ]
+    )
+
+    train_dataloader = DataLoader(
+        train_set,
+        batch_size,
+        drop_last= True,
+        shuffle= True,
+    )
+
+    test_dataloader = DataLoader(
+        test_set,
+        batch_size,
+        drop_last= True,
+        shuffle= True,
+    )
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr = 0.01, weight_decay = .1)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                                                optimizer, 
+                                                max_lr = 0.01,
+                                                steps_per_epoch = int(len(train_dataloader)),
+                                                epochs = num_epoch,
+                                                anneal_strategy = 'linear'
+    )
+
+    model.train()
+    for epoch in range(0, num_epoch):
+        print("Starting epoch: ", epoch + 1)
+        current_loss = 0.
+        for i, data in enumerate(train_dataloader):
+            inputs = data['audio_data'].to(device)
+            targets = data['audio_label'].type(torch.LongTensor).to(device)
+            optimizer.zero_grad()
+
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
+                outputs = model(inputs)
+                loss = loss_fn(outputs, targets)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scheduler.step()
+            scaler.update()
+
+            current_loss += loss.item()
+            if i % (batch_size) == (batch_size - 1):
+                print("Loss after mini-batch %3d: %.3f" % (i+1, current_loss/(5 * batch_size)))
+                current_loss = 0.
+    
+    print("Evaluating training procedure...")
+    model.eval()
+    correct, total = 0., 0.
+    with torch.no_grad():
+        for i, data in enumerate(test_dataloader):
+            inputs = data['audio_data'].to(device)
+            targets = data['audio_label'].type(torch.LongTensor).to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+            total += targets.size(0)
+            correct += (predicted==targets).sum().item()
+        print("Training accuracy: ", 100.*correct/total)
+
+    torch.save(model.state_dict(), "saved_model.pt")
+    np.save("test_set.npy", test_set)
+
+    print(" ")
+
+def test(
+    model,
+    dataset,
+    device
+    ):
+
+    test_dataloader = DataLoader(
+        dataset,
+        batch_size= 1,
+        shuffle= False,
+        drop_last= False
+    )
+    print("Length of dataset: ", len(test_dataloader))
+    correct, total = 0, 0
+    with torch.no_grad():
+        for i, data in enumerate(test_dataloader):
+            inputs = data['audio_data'].to(device)
+            targets = data['audio_label'].to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+            total += targets.size(0)
+            correct += (predicted == targets).sum().item()
+        # print("Number of tested data: ", i)
+        print("Test accuracy: ", 100. * correct / total)
 
 def kfold_cross_validation(
         model,
@@ -396,8 +533,7 @@ def kfold_cross_validation(
         )
 
         model.apply(reset_weights)
-
-        optimizer = torch.optim.AdamW(model.parameters(), lr = 0.01, weight_decay = 1)
+        optimizer = torch.optim.AdamW(model.parameters(), lr = 0.01, weight_decay = .1)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
                                                     optimizer, 
                                                     max_lr = 0.01,
@@ -407,10 +543,9 @@ def kfold_cross_validation(
         )
 
         for epoch in range(0, num_epoch):
-            if epoch % 10 == 0:
-                print("Starting epoch ", epoch+1)
+            print("Starting epoch ", epoch+1)
             current_loss = 0.
-            for i, data in enumerate(trainloader):
+            for i, data in enumerate(trainloader, 0):
                 inputs = data['audio_data'].to(device)
                 targets = data['audio_label'].type(torch.LongTensor).to(device)
                 optimizer.zero_grad()
@@ -429,20 +564,12 @@ def kfold_cross_validation(
                     print("Loss after mini-batch %3d: %.3f" % (i+1, current_loss/(5 * batch_size)))
                     current_loss = 0.
         
-        print("Training process completed, saving model ...")
-
-        #TODO: Save model
-
-        print("Start testing...")
-
-        # Evaluation for this fold
+        print("Start testing for fold: ", fold)
         correct, total = 0, 0
         with torch.no_grad():
-            for i, data in enumerate(testloader):
-                # inputs, targets = data[0].to(device), data[1].to(device)
+            for i, data in enumerate(testloader, 0):
                 inputs = data['audio_data'].to(device)
                 targets = data['audio_label'].type(torch.LongTensor).to(device)
-
                 outputs = model(inputs)
                 _, predicted = torch.max(outputs, 1)
                 total += targets.size(0)
@@ -450,58 +577,6 @@ def kfold_cross_validation(
             print("Accuracy for fold %d: %d %%" %(fold, 100.*correct/total))
             print('------------------------------------')
             results[fold] = 100. * (correct / total)
-
-        # A list to keep track of projection scores; 1 -> correct, 0 -> incorrect
-        # [projection_idx, 0/1, target_digit]
-        # projection_score_list = []
-        # with torch.no_grad():
-        #     for i, data in enumerate(testloader):
-        #         inputs, targets = data[0].to(device), data[1].to(device)
-        #         outputs = model(inputs[:,:-1])
-        #         _, predicted = torch.max(outputs, 1)
-
-        #         for i in range(predicted.size(0)):
-        #             if predicted[i] == targets[i]:
-        #                 projection_score_list.append(
-        #                     [inputs[i, -1], 1, targets[i]]
-        #                 )
-        #             else:
-        #                 projection_score_list.append(
-        #                     [inputs[i, -1], 0, targets[i]]
-        #                 )
-
-            # Sorting projection_score_list based on target digit
-            # [[projection_idx, corr./incorr., target_digit]]
-            # accuracy_list_sort_by_target = []
-            # for i in range(0, num_classes):
-            #     temp = []
-            #     for j in range(len(projection_score_list)):
-            #         if projection_score_list[j][2] == i:
-            #             temp.append([projection_score_list[j][0], projection_score_list[j][1], i])
-            #     accuracy_list_sort_by_target.append(temp)
-            
-            # Voting mechanism
-            # [Correct predictions, total predictions]
-            # voting_accuracy_of_digits = []
-            # for i in range(0, num_classes):
-            #     temp = 0
-            #     for j in range(len(accuracy_list_sort_by_target[i])):
-            #         temp += accuracy_list_sort_by_target[i][j][1]
-            #     voting_accuracy_of_digits.append([temp, len(accuracy_list_sort_by_target[i])])
-                # if temp >= len(accuracy_list_sort_by_target[i])//2:
-                    # voting_accuracy_of_digits.append(1)
-                # else:
-                    # voting_accuracy_of_digits.append(0)
-
-            # Sorting proejction score list based on projections
-            # Here we can find best projections
-            # accuracy_list_sort_by_projection_idx = []
-            # for i in range(0, num_projections):
-            #     temp = []
-            #     for j in range(len(projection_score_list)):
-            #         if projection_score_list[j][0] == i:
-            #             temp.append([projection_score_list[j][0], projection_score_list[j][1], projection_score_list[j][2]])
-            #     accuracy_list_sort_by_projection_idx.append(temp)
         
     print(f"K-FOLD cross validation results for {k_folds} FOLDS")
     print('------------------------------------')
@@ -511,7 +586,9 @@ def kfold_cross_validation(
         sum += value
     print(f"Average accuracy: {sum / len(results.items())} %")
     print("Saving model ... ")
+
     torch.save(model.state_dict(), "saved_model.pt")
+    np.save("test_set.npy", test_sampler)
 
     print(" ")
 
@@ -644,13 +721,14 @@ if __name__ == '__main__':
 
     batch_size = 128
 
-    num_epoch = 25
+    num_epoch = 50
 
     num_classes = 10
     normalizing_dataset = True
     train_with_all_projections = True
     new_number_of_projetions = 64
-    zero_padding_downsample = True    
+    zero_padding_downsample = True  
+
     # np.random.seed(5) 
     # configs = load_configs('configs/defaults/processors/hw.yaml')
     # measurement(
@@ -681,18 +759,22 @@ if __name__ == '__main__':
 
     empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/boron_roomTemp_30nm/ti_spoken_digits/test/empty/"
 
-
     dataset_path = (
+        empty,
         projected_train_val_data_arsenic_f4,
-        # projected_train_val_data_arsenic_f5,
-        # projected_train_val_data_arsenic_f6,
-        # projected_train_val_data_arsenic_f7,
-        # projected_train_val_data_arsenic_f8,
+        projected_train_val_data_arsenic_f5,
+        projected_train_val_data_arsenic_f6,
+        projected_train_val_data_arsenic_f7,
+        projected_train_val_data_arsenic_f8,
+    )
+
+    test_dataset_path = (
         projected_test_data_arsenic_f4,
-        # projected_test_data_arsenic_f5,
-        # projected_test_data_arsenic_f6,
-        # projected_test_data_arsenic_f7,
-        # projected_test_data_arsenic_f8
+        projected_test_data_arsenic_f5,
+        projected_test_data_arsenic_f6,
+        projected_test_data_arsenic_f7,
+        projected_test_data_arsenic_f8,
+
     )
 
     transform = transforms.Compose([
@@ -707,28 +789,65 @@ if __name__ == '__main__':
                 slope_length        = slope_length,
                 rest_length         = rest_length,
                 num_downsample      = down_sample_no,
-                downsample_method  = 'zero_pad_sym' # 'variable', 'zero_pad', 'zero_pad_sym'
+                downsample_method  = 'zero_pad' # 'variable', 'zero_pad', 'zero_pad_sym'
                 # NOTE: Variable length zero padding is logically incorrect,
-                # the reason is that it is basically means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
+                # Because it means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
     )
-    
 
+    # test_dataset = ProjectedAudioDataset(
+    #             data_dirs           = test_dataset_path,
+    #             transform           = transform,
+    #             num_projections     = 128,
+    #             top_projections     = None,
+    #             slope_length        = slope_length,
+    #             rest_length         = rest_length,
+    #             num_downsample      = down_sample_no,
+    #             downsample_method  = 'zero_pad' # 'variable', 'zero_pad', 'zero_pad_sym'
+    #             # NOTE: Variable length zero padding is logically incorrect,
+    #             # Because it means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
+    # )
+    
     classification_layer = NNmodel(
-        NNtype= 'Linear', # 'Conv', 'FC', 'Linear'
+        NNtype= 'FC', # 'Conv', 'FC', 'Linear'
         down_sample_no= down_sample_no,
         hidden_layer_size = hidden_layer_size,
         num_classes= 10,
-        dropout_prob= 0.1,
+        dropout_prob= 0.5,
     )
 
     print("Number of learnable parameters are: ", sum(p.numel() for p in classification_layer.parameters()))
 
+    # kfold_cross_validation(
+    #     model           = classification_layer,
+    #     num_epoch       = num_epoch,
+    #     dataset         = dataset,
+    #     num_projections = num_projections,
+    #     batch_size      = batch_size,
+    #     k_folds         = 5      
+    # )
 
-    kfold_cross_validation(
-        model           = classification_layer,
-        num_epoch       = num_epoch,
-        dataset         = dataset,
-        num_projections = num_projections,
-        batch_size      = batch_size,
-        k_folds         = 10      
+    train_and_test(
+        model= classification_layer,
+        num_epoch= num_epoch,
+        dataset= dataset,
+        batch_size= batch_size
     )
+
+    classification_layer.load_state_dict(torch.load("saved_model.pt"))
+    model = classification_layer.to(device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+    model.eval()
+    test_dataset = np.load("test_set.npy", allow_pickle=True)
+    test(
+        model,
+        test_dataset,
+        device=  torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    )
+
+    # from librosa import display
+    # fig, ax = plt.subplots()
+    # S = np.abs(librosa.stft(self.dataset_list[0][:-1], n_fft=256))
+    # img = librosa.display.specshow(librosa.amplitude_to_db(S,
+    #                                                     ref=np.max),
+    #                             y_axis='linear', x_axis='time', ax=ax)
+    # ax.set_title('Power spectrogram')
+    # fig.colorbar(img, ax=ax, format="%+2.0f dB")
