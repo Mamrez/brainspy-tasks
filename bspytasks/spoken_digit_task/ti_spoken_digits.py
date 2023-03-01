@@ -794,18 +794,18 @@ if __name__ == '__main__':
                 # Because it means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
     )
 
-    # test_dataset = ProjectedAudioDataset(
-    #             data_dirs           = test_dataset_path,
-    #             transform           = transform,
-    #             num_projections     = 128,
-    #             top_projections     = None,
-    #             slope_length        = slope_length,
-    #             rest_length         = rest_length,
-    #             num_downsample      = down_sample_no,
-    #             downsample_method  = 'zero_pad' # 'variable', 'zero_pad', 'zero_pad_sym'
-    #             # NOTE: Variable length zero padding is logically incorrect,
-    #             # Because it means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
-    # )
+    test_dataset = ProjectedAudioDataset(
+                data_dirs           = test_dataset_path,
+                transform           = transform,
+                num_projections     = 128,
+                top_projections     = None,
+                slope_length        = slope_length,
+                rest_length         = rest_length,
+                num_downsample      = down_sample_no,
+                downsample_method  = 'zero_pad' # 'variable', 'zero_pad', 'zero_pad_sym'
+                # NOTE: Variable length zero padding is logically incorrect,
+                # Because it means varible low-pass filtering, high for low-durated audios, and low for high-duration adious
+    )
     
     classification_layer = NNmodel(
         NNtype= 'FC', # 'Conv', 'FC', 'Linear'
@@ -817,31 +817,31 @@ if __name__ == '__main__':
 
     print("Number of learnable parameters are: ", sum(p.numel() for p in classification_layer.parameters()))
 
-    # kfold_cross_validation(
-    #     model           = classification_layer,
-    #     num_epoch       = num_epoch,
-    #     dataset         = dataset,
-    #     num_projections = num_projections,
-    #     batch_size      = batch_size,
-    #     k_folds         = 5      
+    kfold_cross_validation(
+        model           = classification_layer,
+        num_epoch       = num_epoch,
+        dataset         = dataset,
+        num_projections = num_projections,
+        batch_size      = batch_size,
+        k_folds         = 5      
+    )
+
+    # train_and_test(
+    #     model= classification_layer,
+    #     num_epoch= num_epoch,
+    #     dataset= dataset,
+    #     batch_size= batch_size
     # )
 
-    train_and_test(
-        model= classification_layer,
-        num_epoch= num_epoch,
-        dataset= dataset,
-        batch_size= batch_size
-    )
-
-    classification_layer.load_state_dict(torch.load("saved_model.pt"))
-    model = classification_layer.to(device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
-    model.eval()
-    test_dataset = np.load("test_set.npy", allow_pickle=True)
-    test(
-        model,
-        test_dataset,
-        device=  torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    )
+    # classification_layer.load_state_dict(torch.load("saved_model.pt"))
+    # model = classification_layer.to(device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+    # model.eval()
+    # test_dataset = np.load("test_set.npy", allow_pickle=True)
+    # test(
+    #     model,
+    #     test_dataset,
+    #     device=  torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # )
 
     # from librosa import display
     # fig, ax = plt.subplots()

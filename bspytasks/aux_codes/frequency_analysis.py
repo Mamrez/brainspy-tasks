@@ -357,28 +357,59 @@ def fixed_freq_phase_analysis_with_Marc(
 
     print("hi")
 
+def frequency_filtering_analysis(
+    driver,
+    slope_length = 500,
+    rest_length = 5000,
+    T = 1,
+    fs = 8000
+):
+    meas_input = np.zeros((7, int(2 * slope_length + rest_length + T * fs)))
+    t = np.linspace(0, T, int(T * fs))
+
+    input_signal = 0.25*np.sin(2 * np.pi * 90 * t) + 0.25*np.sin(2 * np.pi * 130 * t)
+
+    set_random_control_voltages(
+        meas_input,
+        dnpu_control_indeces=[0, 1, 2, 4, 5, 6],
+        slop_length=slope_length,
+        magnitudes=[-0.25, 0.25]
+    )
+
+    meas_input[3, slope_length + rest_length : -slope_length] = input_signal
+
+    output = driver.forward_numpy(meas_input.T)
+
+    x = output[slope_length+rest_length:-slope_length,0]
+    x = x - np.mean(x)
+    plt.magnitude_spectrum(x, 8000)
+    
+    plt.figure()
+    plt.plot(x)
+    plt.show()
+    print("")
 
 if __name__ == '__main__':
 
     from brainspy.utils.io import load_configs
     from brainspy.utils.manager import get_driver
 
-    np.random.seed(0)  
-
     configs = load_configs('configs/defaults/processors/hw.yaml')
     driver = get_driver(configs=configs["driver"])
 
-    fixed_freq_phase_analysis_with_Marc(
-        slope_length= 5000,
-        rest_length = 5000,
-        T= 0.5,
-        fs = 25000,
-        start_freq = 20,
-        stop_freq = 2000,
-        freqs_no = 20,
-        voltage_sweep= True,  
-        driver= driver,
-    )
+    frequency_filtering_analysis(driver=driver)
+
+    # fixed_freq_phase_analysis_with_Marc(
+    #     slope_length= 5000,
+    #     rest_length = 5000,
+    #     T= 0.5,
+    #     fs = 25000,
+    #     start_freq = 20,
+    #     stop_freq = 2000,
+    #     freqs_no = 20,
+    #     voltage_sweep= True,  
+    #     driver= driver,
+    # )
 
     # chirp_phase_analysis(
     #     slope_length= 10000,
