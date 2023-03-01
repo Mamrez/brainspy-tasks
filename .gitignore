@@ -64,4 +64,4 @@ bspytasks/spike/ti46/*
 runs/*
 bspytasks/HbSChallenge/dataset/*
 bspytasks/dvs128/*
-bspytasks/spoken_digit_task/*
+bspytasks/spoken_digit_task/spoken_mnist/recordings/*
