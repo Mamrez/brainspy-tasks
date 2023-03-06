@@ -158,8 +158,8 @@ def measurement(
             
             dnpu_output_train[d][p_idx] = padded_output
             
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/dnpu_output.npy", dnpu_output_train)
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/labels.npy", train_labels)
+    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy", dnpu_output_train)
+    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy", train_labels)
 
     driver.close_tasks()
 
@@ -189,13 +189,13 @@ class M4Compact(nn.Module):
     def __init__(self, input_ch, n_channels=32) -> None:
         super().__init__()
         self.bn1 = nn.BatchNorm1d(input_ch)
-        self.conv1 = nn.Conv1d(input_ch, 1 * n_channels, kernel_size=3)
-        self.bn2 = nn.BatchNorm1d(1 * n_channels)
+        self.conv1 = nn.Conv1d(input_ch, int(0.5 * n_channels), kernel_size=3)
+        self.bn2 = nn.BatchNorm1d(int(0.5 * n_channels))
         self.pool1 = nn.MaxPool1d(8)
-        self.conv2 = nn.Conv1d(1 * n_channels, 1 * n_channels, kernel_size=3)
-        self.bn3   = nn.BatchNorm1d(1 * n_channels)
+        self.conv2 = nn.Conv1d(int(0.5 * n_channels), int(0.5 * n_channels), kernel_size=3)
+        self.bn3   = nn.BatchNorm1d(int(0.5 * n_channels))
         self.pool2 = nn.MaxPool1d(8)
-        self.fc1   = nn.Linear(1 * n_channels, 10)
+        self.fc1   = nn.Linear(int(0.5 * n_channels), 10)
     
     def forward(self, x):
         x = self.bn1(x)
@@ -400,17 +400,17 @@ if __name__ == '__main__':
     #     n_output_channels       = 32,
     #     slope_length            = 1000,
     #     rest_length             = 2000,
-    #     dnpu_input_index        = 2,
-    #     dnpu_control_indeces    =[0, 1, 3, 4, 5, 6],
+    #     dnpu_input_index        = 4,
+    #     dnpu_control_indeces    =[0, 1, 2, 3, 5, 6],
     # )
 
-    projections_to_remove = []
+    projections_to_remove = [] # [3, 6, 11, 15]
 
     # Bellow is a bit complex type fo coding. I concatenate the whole training dataset to calculate mean and std (global variables)
     # Then, I use these variables to normalize both training AND test dataset.
     dataset_for_mean =  DNPUAudioDataset(
-                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/dnpu_output.npy",
-                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/labels.npy",
+                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy",
+                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy",
                             transform   = ToTensor(),
                             projections_to_remove= projections_to_remove
     )
@@ -432,8 +432,8 @@ if __name__ == '__main__':
     batch_size = 32
 
     dataset = DNPUAudioDataset(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/dnpu_output.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/labels.npy",
+        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy",
+        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy",
         transform   = transform,
         projections_to_remove= projections_to_remove
     )

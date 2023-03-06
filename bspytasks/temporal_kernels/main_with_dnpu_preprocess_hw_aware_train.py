@@ -24,214 +24,56 @@ from brainspy.utils.manager import get_driver
 _global_param = 32
 _mean, _std = 0, 0
 
-def butter_lowpass(cutoff, order, fs):
-    return scipy.signal.butter( N = order, 
-                                Wn = cutoff, 
-                                btype = 'lowpass', 
-                                analog=False,
-                                fs= fs
-    )
-
-def butter_lowpass_filter(data, cutoff, order, fs):
-    b, a = butter_lowpass(cutoff, order = order, fs=fs)
-    y = scipy.signal.filtfilt(b = b, 
-                            a = a, 
-                            x = data
-    )
-    return y
-
-def set_random_control_voltages( 
-                meas_input,
-                dnpu_control_indeces,
-                slope_length,
-                projection_idx,
-                rand_matrix #  (len(dnpu_control_indeces), 128) -> ((6, 128))
-                ):
-    for i in range(len(dnpu_control_indeces)):
-        ramp_up = np.linspace(0, rand_matrix[i, projection_idx], slope_length)
-        plateau = np.linspace(rand_matrix[i, projection_idx], rand_matrix[i, projection_idx], np.shape(meas_input)[1] - 2 * slope_length)
-        ramp_down = np.linspace(rand_matrix[i, projection_idx], 0, slope_length)
-        meas_input[dnpu_control_indeces[i], :] = np.concatenate((ramp_up, plateau, ramp_down))
-
-    return meas_input
-
-def load_audio_dataset(
-    data_dir = None,
-    min_max_scale = None
+def post_dnpu_down_sample(
+    input, # (500, 32, 12500)
+    receptive_field = 4, # in milisecond
+    sample_rate = 12500, # hz
 ):
-    dataset, label = [], []
+    kernel_size = int(sample_rate * receptive_field * 0.001) # 50 points per window
+    o_size = int(np.shape(input)[2] // kernel_size) # 250
 
-    for subdir, _, files in chain.from_iterable(
-        os.walk(path) for path in data_dir
-    ):
-        for file in files:
-            tmp, _ = librosa.load(os.path.join(subdir, file), sr=None, mono=True, dtype=np.float32)
-            if min_max_scale == True:
-                scale = np.max(np.abs(tmp))
-                tmp = tmp * (1/scale)
-            tmp, _ = librosa.effects.trim(tmp, frame_length=512, hop_length=128, top_db=30)
-            dataset.append(tmp)
-            label.append(file[0])
+    # correct this part
+    output = np.zeros((np.shape(input)[0], np.shape(input)[1], 500))
+    for i in range(len(input)):
+        for j in range(len(input[i])):
+            for k in range(0, 500):
+                output[i][j][k] = input[i][j][k * 25]
+
+    # for i in range(len(input)):
+    #     for j in range(len(input[i])):
+    #         for k in range(0, kernel_size):
+    #             output[i][j][k] = input[i][j][k * o_size - 1]
     
-    return dataset, label
-
-def measurement(
-    configs,
-    n_output_channels, # number of dnpu configs
-    slope_length,
-    rest_length,
-    dnpu_input_index,
-    dnpu_control_indeces
-):
-
-    empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_in_house_arsenic/empty/"
-
-    train_audios, train_labels = load_audio_dataset(
-        data_dir        = (empty, "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/spoken_digit_task/spoken_mnist/recordings/theo/train"),
-        min_max_scale   = True
-    )
-    test_audios, test_labels = load_audio_dataset(
-        data_dir        = (empty, "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/spoken_digit_task/spoken_mnist/recordings/theo/test"),
-        min_max_scale   = True
-    )
-
-    # in_len = 8000, k_size= 80, stride = 16
-    dnpu_output_train = np.zeros((len(train_audios), n_output_channels, 496))
-    dnpu_output_test = np.zeros((len(test_audios), n_output_channels, 496))
-
-    driver = get_driver(configs["driver"])
-
-    # Dividing random voltage of neighbouring electrodes by a factor of 2
-    rand_matrix = np.random.uniform(
-        -0.4, 
-        0.4, 
-        size = (len(dnpu_control_indeces), n_output_channels)
-    )
-    for i in range(0, len(rand_matrix)):
-        if i == 0 or i == 5:
-            rand_matrix[i][:] = rand_matrix[i][:] / 4
-
-    for d in tqdm(range(len(train_audios)), desc="Measuring training data..."):
-        for p_idx in tqdm(range(n_output_channels), desc = "Measuring projection"):
-
-            # dnpu measurement input
-            meas_inputs = np.zeros(
-                (
-                    len(dnpu_control_indeces) + 1,
-                    len(train_audios[d]) + 2 * slope_length + rest_length
-                )
-            )
-
-            meas_inputs[dnpu_input_index,slope_length + rest_length : -slope_length] = train_audios[d]
-            meas_inputs = set_random_control_voltages(
-                meas_input= meas_inputs,
-                dnpu_control_indeces= dnpu_control_indeces,
-                slope_length= slope_length,
-                projection_idx= p_idx,
-                rand_matrix= rand_matrix
-            )
-
-            output = driver.forward_numpy(meas_inputs.T)
-            output = output[slope_length + rest_length : -slope_length, 0]
-
-            avg = np.mean(output)
-
-            output = output - avg
-
-            output = butter_lowpass_filter(
-                output, 3900, 4, 8000
-            )
-
-            # Padding output to 8000
-            padded_output = np.zeros((8000))
-            if len(output) < 8000:
-                padded_output = np.pad(
-                    output,
-                    pad_width       = (0, 8000 - len(output)),
-                    mode            = 'constant',
-                    constant_values = 0.
-                )
-            else:
-                padded_output = output[0:8000]
-                print("Warning! Cropping data...")
-
-            # assigning the measuremet output to the dnpu_output_train
-            for k in range(0, 496):
-                dnpu_output_train[d][p_idx][k] = padded_output[k * 16 + 80 - 1]
-            
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/dnpu_output_train.npy", dnpu_output_train)
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/train_labels.npy", train_labels)
-
-    for d in tqdm(range(len(test_audios)), desc = "Measuring test data: "):
-        for p_idx in tqdm(range(n_output_channels), desc = "Measuring projection"):
-
-            # dnpu measurement input
-            meas_inputs = np.zeros(
-                (
-                    len(dnpu_control_indeces) + 1,
-                    len(test_audios[d]) + 2 * slope_length + rest_length
-                )
-            )
-
-            meas_inputs[dnpu_input_index,slope_length + rest_length : -slope_length] = test_audios[d]
-            meas_inputs = set_random_control_voltages(
-                meas_input= meas_inputs,
-                dnpu_control_indeces= dnpu_control_indeces,
-                slope_length= slope_length,
-                projection_idx= p_idx,
-                rand_matrix= rand_matrix
-            )
-
-            output = driver.forward_numpy(meas_inputs.T)
-            output = output[slope_length + rest_length : -slope_length, 0]
-
-            avg = np.mean(output)
-
-            output = output - avg
-
-            output = butter_lowpass_filter(
-                output, 3900, 4, 8000
-            )
-
-            # Padding output to 8000
-            padded_output = np.zeros((8000))
-            padded_output = np.pad(
-                output,
-                pad_width       = (0, 8000 - len(output)),
-                mode            = 'constant',
-                constant_values = 0.
-            )
-
-            # assigning the measuremet output to the dnpu_output_train
-            for k in range(0, 496):
-                dnpu_output_test[d][p_idx][k] = padded_output[k * 16 + 80 - 1]
-            
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/test/dnpu_output_test.npy", dnpu_output_test)
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/test/test_labels.npy", test_labels)
-
-    driver.close_tasks()
-    
+    return output
 
 class M4Compact(nn.Module):
-    def __init__(self, n_channels=_global_param) -> None:
+    def __init__(self, input_ch, n_channels=32) -> None:
         super().__init__()
-        self.bn1 = nn.BatchNorm1d(n_channels)
-        self.conv1 = nn.Conv1d(n_channels, n_channels, kernel_size=3)
-        self.bn2 = nn.BatchNorm1d(n_channels)
+        self.bn1 = nn.BatchNorm1d(input_ch)
+        self.conv1 = nn.Conv1d(input_ch, int(0.5 * n_channels), kernel_size=3)
+        self.bn2 = nn.BatchNorm1d(int(0.5 * n_channels))
         self.pool1 = nn.MaxPool1d(8)
-        self.conv2 = nn.Conv1d(n_channels, 1 * n_channels, kernel_size=3)
-        self.bn3   = nn.BatchNorm1d(1 * n_channels)
+        self.conv2 = nn.Conv1d(int(0.5 * n_channels), int(0.5 * n_channels), kernel_size=3)
+        self.bn3   = nn.BatchNorm1d(int(0.5 * n_channels))
         self.pool2 = nn.MaxPool1d(8)
-        self.fc1   = nn.Linear(1 * n_channels, 10)
+        self.fc1   = nn.Linear(int(0.5 * n_channels), 10)
     
     def forward(self, x):
-        x = F.relu(self.bn1(x))
+        x = self.bn1(x)
+        x = F.relu(x)
+
         x = self.conv1(x)
-        x = F.relu(self.bn2(x))
+        x = self.bn2(x)
+        x = F.relu(x)
+
         x = self.pool1(x)
+
         x = self.conv2(x)
-        x = F.relu(self.bn3(x))
-        x = self.pool2(x)
+        x = self.bn3(x)
+        x = F.relu(x)
+
+        # x = self.pool2(x)
+
         x = F.avg_pool1d(x, x.shape[-1])
         x = x.permute(0, 2, 1)
         x = self.fc1(x)
@@ -275,18 +117,33 @@ def get_mean_and_std(dataloader):
     return mean_temp, std_temp
 
 # loads from .npy files
-class DNPUAudioDataset_2(Dataset):
+class DNPUAudioDataset(Dataset):
     def __init__(
         self,
         data_dir,
         label_dir,
         transform,
+        projections_to_remove = [],
     ) -> None:
     
         self.transform = transform
 
-        self.dataset = np.load(data_dir)
+        self.dataset_tmp = np.load(data_dir)
         self.label = np.load(label_dir)
+
+        self.dataset_tmp = post_dnpu_down_sample(self.dataset_tmp, 4, 12500)
+
+        if projections_to_remove:
+            # new dataset size -> 450, 32-rem, 496
+            self.dataset = np.zeros((np.shape(self.dataset_tmp)[0], _global_param - len(projections_to_remove), np.shape(self.dataset_tmp)[2]))
+            # loop over new number of projections
+            cnt = 0
+            for i in range(0, _global_param):
+                if not(i in projections_to_remove):
+                    self.dataset[:, cnt, :] = self.dataset_tmp[:, i, :]
+                    cnt += 1
+        else:
+            self.dataset = self.dataset_tmp
         
         assert len(self.dataset) == len(self.label), "Error in loading data!"
     
@@ -323,7 +180,7 @@ def train(
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
-        max_lr          = 0.01,
+        max_lr          = 0.005,
         steps_per_epoch = int(len(train_loader)),
         epochs          = num_epochs,
         anneal_strategy = 'cos',
@@ -365,25 +222,26 @@ def train(
                     current_loss = 0.
                 i += 1
 
+                tepoch.set_postfix(loss=current_loss, accuracy = np.max(accuracies))
+
+            if epoch >= 40:
+                model.eval()
+                correct, total = 0, 0
+                for data in enumerate(test_loader):
+                    inputs = data[1]['audio_data'].to(device)
+                    targets = data[1]['audio_label'].type(torch.LongTensor).to(device)
+                    outputs = torch.squeeze(model(inputs))
+                    _, predicted = torch.max(outputs, 1)
+                    total += data[1]['audio_label'].size(0)
+                    correct += (predicted == targets).sum().item()
+
+                # print("Test accuracy: ", 100 * correct / total)
+                accuracies.append(100*correct/total)
+                model.train()
+            
+            if epoch >= 80:
                 with torch.no_grad():
-                    for param in model.parameters():
-                        print("")
-
-                tepoch.set_postfix(loss=current_loss, accuracy = accuracies[epoch-1])
-
-            model.eval()
-            correct, total = 0, 0
-            for data in enumerate(test_loader):
-                inputs = data[1]['audio_data'].to(device)
-                targets = data[1]['audio_label'].type(torch.LongTensor).to(device)
-                outputs = torch.squeeze(model(inputs))
-                _, predicted = torch.max(outputs, 1)
-                total += data[1]['audio_label'].size(0)
-                correct += (predicted == targets).sum().item()
-
-            # print("Test accuracy: ", 100 * correct / total)
-            accuracies.append(100*correct/total)
-            model.train()
+                    print("")
             
 
     print("-----------------------------------------")
@@ -392,58 +250,19 @@ def train(
 
 if __name__ == '__main__':
 
-    from brainspy.utils.io import load_configs
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_in_house_arsenic/empty/"
-
-    configs = load_configs(
-        "configs/defaults/processors/hw.yaml"
-    )
-
-    # np.random.seed(70)
-    # measurement(
-    #     configs=configs,
-    #     n_output_channels       = 32,
-    #     slope_length            = 200,
-    #     rest_length             = 800,
-    #     dnpu_input_index        = 2,
-    #     dnpu_control_indeces    =[0, 1, 3, 4, 5, 6],
-    # )
-
+    projections_to_remove = [] # [3, 6, 11, 15]
 
     # Bellow is a bit complex type fo coding. I concatenate the whole training dataset to calculate mean and std (global variables)
     # Then, I use these variables to normalize both training AND test dataset.
-    dataset_for_mean = torch.utils.data.ConcatDataset(
-                                    [
-                                        DNPUAudioDataset_2(
-                                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/train/dnpu_output_train.npy",
-                                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/train/train_labels.npy",
-                                            transform   = transforms.Compose([ToTensor()]),
-                                        ),
-                                        DNPUAudioDataset_2(
-                                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/train/dnpu_output_train.npy",
-                                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/train/train_labels.npy",
-                                            transform   = transforms.Compose([ToTensor()]),
-                                        ),
-                                        DNPUAudioDataset_2(
-                                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/train/dnpu_output_train.npy",
-                                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/train/train_labels.npy",
-                                            transform   = transforms.Compose([ToTensor()]),
-                                        ),
-                                        DNPUAudioDataset_2(
-                                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/train/dnpu_output_train.npy",
-                                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/train/train_labels.npy",
-                                            transform   = transforms.Compose([ToTensor()]),
-                                        ),
-                                        DNPUAudioDataset_2(
-                                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/dnpu_output_train.npy",
-                                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/train_labels.npy",
-                                            transform   = transforms.Compose([ToTensor()]),
-                                        ),
-                                    ]
+    dataset_for_mean =  DNPUAudioDataset(
+                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy",
+                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy",
+                            transform   = ToTensor(),
+                            projections_to_remove= projections_to_remove
     )
-
+                                    
     _mean, _std = get_mean_and_std(
         DataLoader(
             dataset_for_mean,
@@ -455,86 +274,46 @@ if __name__ == '__main__':
 
     transform = transforms.Compose([
         ToTensor(),
-        # mean-std normalize
         Normalize()
     ])
 
-    batch_size = 64
+    batch_size = 32
 
-    model = M4Compact(
-        # n_output=10,
-        # n_channel=global_param
-    )
-    print("Number of learnable params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-    # loading from new measurement
-    train_set1 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/train/dnpu_output_train.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/train/train_labels.npy",
+    dataset = DNPUAudioDataset(
+        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy",
+        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy",
         transform   = transform,
-    )
-    train_set2 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/train/dnpu_output_train.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/train/train_labels.npy",
-        transform   = transform,
-    )
-    train_set3 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/train/dnpu_output_train.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/train/train_labels.npy",
-        transform   = transform,
-    )
-    train_set4 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/train/dnpu_output_train.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/train/train_labels.npy",
-        transform   = transform,
-    )
-    train_set5 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/dnpu_output_train.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/train/train_labels.npy",
-        transform   = transform,
+        projections_to_remove= projections_to_remove
     )
 
-    test_set1 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/test/dnpu_output_test.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/lucas/test/test_labels.npy",
-        transform   = transform,
+    trainset, testset = torch.utils.data.random_split(
+        dataset,
+        lengths = [450, 50]
     )
-    test_set2 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/test/dnpu_output_test.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/george/test/test_labels.npy",
-        transform   = transform,
-    )
-    test_set3 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/test/dnpu_output_test.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/jackson/test/test_labels.npy",
-        transform   = transform,
-    )
-    test_set4 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/test/dnpu_output_test.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/nicolas/test/test_labels.npy",
-        transform   = transform,
-    )
-    test_set5 = DNPUAudioDataset_2(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/test/dnpu_output_test.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_spoken_mnist/theo/test/test_labels.npy",
-        transform   = transform,
-    )
+
 
     train_loader = DataLoader(
-        torch.utils.data.ConcatDataset([train_set1, train_set2, train_set3, train_set4, train_set5]),
-        # train_set1,
+        # torch.utils.data.ConcatDataset([train_set1, train_set2, train_set3, train_set4, train_set5]),
+        trainset,
         batch_size  = batch_size,
         shuffle     = True,
         drop_last   = False
     )
 
     test_loader = DataLoader(
-        torch.utils.data.ConcatDataset([test_set1, test_set2, test_set3, test_set4, test_set5]),
-        # test_set1,
-        batch_size  = 32,
+        # torch.utils.data.ConcatDataset([test_set1, test_set2, test_set3, test_set4, test_set5]),
+        testset,
+        batch_size  = 8,
         shuffle     = False,
         drop_last   = False
     )
+
+
+    model = M4Compact(
+        input_ch = 32 - len(projections_to_remove),
+    )
+    print("Number of learnable params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
+
 
     train(
         model           = model,
