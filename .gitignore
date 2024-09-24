@@ -3,6 +3,7 @@
 
 # Temporal input/output files of the application
 tmp/*
+tmp/
 
 # Default configuration templates
 configs/benchmark_tests/capacity_test/capacity_test_template_ga.json
@@ -66,3 +67,13 @@ bspytasks/HbSChallenge/dataset/*
 bspytasks/dvs128/*
 bspytasks/spoken_digit_task/spoken_mnist/recordings/*
 bspytasks/spoken_digit_task/ti46/*
+bspytasks/spoken_mnist/spoken_mnist/recordings/*
+
+data/
+recurrent_time_constant_2.npy
+recurrent_time_constants_1.npy
+
+bspytasks/spoken_mnist/in_house_dataset/wilfred_spoken_digits
+bspytasks/spoken_mnist/speech_command_google/
+bspytasks/spoken_mnist/recordings/
+bspytasks/spoken_mnist/ti46/

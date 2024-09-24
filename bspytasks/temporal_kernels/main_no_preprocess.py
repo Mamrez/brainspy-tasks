@@ -220,7 +220,7 @@ if __name__ == '__main__':
 
 
     train_set = AudioDataset(
-        data_dir    = ("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/spoken_digit_task/spoken_mnist/spoken_mnist/train", empty),
+        data_dir    = ("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/spoken_digit_task/spoken_mnist/recordings/george/train", empty),
         transform   = transform,
         train       = True   
     )

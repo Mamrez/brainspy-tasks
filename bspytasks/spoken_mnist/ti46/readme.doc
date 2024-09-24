@@ -1,0 +1,201 @@
+                           TI 46 WORD SPEECH DATABASE
+                     SPEAKER-DEPENDENT ISOLATED WORD CORPUS
+                                     (TI46)
+
+                                     CD-ROM
+
+                             NIST Speech Disc 7-1.1
+                                 September, 1991
+
+
+1. Introduction
+---------------
+
+This disc contains a corpus of isolated spoken words which was designed and
+collected at Texas Instruments (TI) in 1980.  The corpus was intended to 
+provide automated speech recognition researchers with a data set on which to
+train and evaluate their products.  The corpus has been reformatted and 
+produced on CD-ROM by the National Institute of Standards and Technology
+(NIST) and is distributed with the permission of Texas Instruments.
+
+The material contained on this disc was recorded in a low noise sound
+isolation booth, using an Electro-Voice RE-16 cardoid dynamic microphone,
+positioned two inches from the speaker's mouth and out of the breath stream.
+
+
+2. Word Codes
+-------------
+
+The TI46 corpus contains 16 speakers: 8 males labeled m1-m8 and 8 females
+labeled f1-f8.  There are 46 words per speaker, and each word has a two-
+letter abbreviation (or prompt code) as shown in the table below:
+
+	Word		Code
+	----		----
+	ZERO		'00'
+	ONE		'01'
+	TWO		'02'
+	THREE		'03'
+	FOUR		'04'
+	FIVE		'05'
+	SIX		'06'
+	SEVEN		'07'
+	EIGHT		'08'
+	NINE		'09'
+	A		'0A'
+	B		'0B'
+	C		'0C'
+	D		'0D'
+	E		'0E'
+	F		'0F'
+	G		'0G'
+	H		'0H
+	I		'0I'
+	J		'0J'
+	K		'0K'
+	L		'0L'
+	M		'0M'
+	N		'0N'
+	O		'0O'
+	P		'0P'
+	Q		'0Q'
+	R		'0R'
+	S		'0S'
+	T		'0T'
+	U		'0U'
+	V		'0V'
+	W		'0W'
+	X		'0X'
+	Y		'0Y'
+	Z		'0Z'
+	ENTER		'EN'
+	ERASE		'ER'
+	GO		'GO'
+	HELP		'HP'
+	NO		'NO'
+	RUBOUT		'RB'
+	REPEAT		'RP'
+	STOP		'SP'
+	START		'ST'
+	YES		'YS'
+
+
+3. File Naming Conventions
+--------------------------
+
+There are 26 utterances of each word from each speaker: 10 designated as
+training (or enrollment) tokens and 16 designated as testing tokens.  Every
+file in this corpus has a unique name.  The name of each file contains 8
+characters followed by the .wav suffix.  The first eight characters of 
+the filename are formed by concatenating the 2-character prompt code 
+('00'-'YS'), the 2-character speaker code ('f1'-'f8','m1'-'m8'), the 
+2-character session code ('se' for enrollment, 's1'-'s8' for testing), and 
+the 2-character token code ('t0'-'t9' for enrollment sessions, 't0'-'t1' 
+for testing sessions).
+
+
+Example #1:	00f1set8.wav
+
+The '00' denotes the word 'ZERO'.
+The 'f1' denotes female number one.
+The 'se' denotes an 'enrollment' session.
+The 't8' denotes token number eight.
+
+
+Example #2:	rpm5s7t0.wav
+
+The 'rp' denotes the word 'REPEAT'.
+The 'm5' denotes male speaker number five.
+The 's7' denotes the seventh session.
+The 't0' denotes token number zero.
+
+
+4. Corpus Structure
+-------------------
+
+The organization of the corpus is as follows.  The complete TI46 corpus is
+divided into two directories: TI20 and TI_ALPHA.  TI20 contains all utterances 
+of the words 'ZERO'-'NINE' and the words 'ENTER'-'YES'.  TI_ALPHA contains all 
+utterances of the words 'A'-'Z'.  The TI20 and TI_ALPHA directories are each 
+divided into TESTING and TRAINING directories, and each TESTING and TRAINING
+directory contains 16 sub-directories (one for each speaker).  In each of the
+speaker directories, labeled F1-F8 and M1-M8, are the corresponding .wav 
+files.
+
+
+Example #3:	enm8set6.wav
+
+The root directory, TI46, contains two directories: TI20 and TI_ALPHA.
+The 'EN' denotes the word 'ENTER' so this file is in the TI20 directory.
+The TI20 directory contains two directories: TEST and TRAIN.
+The 'SE' denotes a training session so this file is in the TRAIN directory.
+The TRAIN directory contains sixteen directories: F1-F8 and M1-M8.
+The 'M8' denotes the eighth male speaker so this file is in the M8 directory.
+So, in the directory /ti-46word/ti20/train/m8 the file enm8set6.wav appears.
+
+
+Example #4:	0xf4s4t1.wav
+
+The root directory, TI46, contains two directories: TI20 and TI_ALPHA.
+The '0X' denotes the word 'X' so this file is in the TI_ALPHA directory.
+The TI_ALPHA directory contains two directories: TEST and TRAIN.
+The 'S4' denotes a testing session so this file is in the TEST directory.
+The TEST directory contains sixteen directories: F1-F8 and M1-M8.
+The 'F4' denotes the fourth female speaker so this file is in the F4 directory.
+So, in the directory /ti-46word/ti_alpha/test/f4 the file 0xf4s4t1.wav appears.
+
+
+Example #5:	07f2s2t0.wav
+
+The root directory, TI46, contains two directories: TI20 and TI_ALPHA.
+The '07' denotes the word 'SEVEN' so this file is in the TI20 directory.
+The TI20 directory contains two directories: TEST and TRAIN.
+The 'S2' denotes a testing session so this file is in the TEST directory.
+The TEST directory contains sixteen directories: F1-F8 and M1-M8.
+The 'F2' denotes the second female speaker so this file is in the F2 directory.
+So, in the directory /ti-46word/ti20/test/f2 the file 07f2s2t0.wav appears.
+
+
+All .wav files begin with the standard 1024 byte NIST SPHERE format header,
+in which information pertaining to the file is stored.
+
+
+5. Note
+-------
+
+There are two files with somewhat unusual sample values in this corpus:
+
+1) The file 'rbf6set4.wav' contains a sample value of -2051, which just 
+overflows the nominal 12-bit quantization value.  It appears that this
+is a consequence of a "debiasing", or DC-offset removal signal processing
+operation at TI, and should be of no practical consequence.
+
+2) The file '0sf5s5t0.wav' has unusually low sample min and max values,
+apparently corresponding to unusually low vocal effort and/or recording gain.
+
+The archival copies of both of these files, at both NIST and Texas
+Instruments, are identical.
+
+The above numbers of utterances per speaker above reflects the goal of the
+collection. For various reasons, this number was not reached for some speakers.
+Below is the number of files per speaker:
+
+Speakers     	    Files
+f5,f6,f7,m2,m8	    1196
+f2,f3,f4,f8	    1195
+m7		    1184
+m1		    1187
+m3		    1191
+f1		    1194
+m4,m5,m6	    1174
+
+
+6. References
+-------------
+
+Doddington, George R. and Schalk, Thomas B., "Speech Recognition: Turning
+Theory to Practice", in IEEE Spectrum, September, 1981, pp. 26-32.
+
+Schalk, Thomas B., "The Design and Use of Speech Recognition Data Bases", in 
+"Proceedings of the Workshop on Standardization for Speech I/O Technology",
+March 18-19, 1982, pp. 211-214.
