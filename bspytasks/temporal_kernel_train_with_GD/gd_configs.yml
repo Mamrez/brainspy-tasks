@@ -1,0 +1,24 @@
+# Input configs
+
+ramping_points: 500
+waiting_points: 6500
+
+perturbation_time: 0.8
+
+
+# target: [0,1,1,0]     
+inputs: [0]
+
+# Lock-in configs
+
+perturbation_frequencies: [0, 580, 625, 545, 510, 475, 430]
+perturbation_amplitudes: [0, 0.015, 0.015, 0.015, 0.010, 0.015, 0.020] # [0.0, 0.03, 0.03, 0.015, 0.015, 0.03, 0.03]
+phase_threshold: 90
+cutoff_frequency: 10
+filter_order: 2
+
+driver:
+  instruments_setup: 
+    activation_sampling_frequency: 12500 # Digital-to-Analogue Converter module update rate
+    readout_sampling_frequency: 250000 # Analogue-to-Digital Converter sampling rate
+    average_io_point_difference: True # Averaging mode of the ADC output;

@@ -1,0 +1,44 @@
+processor_type: cdaq_to_cdaq
+input_indices: # It specifies the indices of the activation data array that will be considered as inputs
+  - 2
+  - 6 
+waveform:
+  plateau_length: 3000
+  slope_length: 3000
+driver:
+  instrument_type: cdaq_to_cdaq
+
+  amplification:  [1] # 39.5 # Amplification factor of Amplifier;
+  # Maximum/Minimum measured current: +158/-158 nA
+  # Maximum/Minimum Op Amp. output voltage: +4/-4 V
+  # Amplification equation: abs(Maximum measured current)/abs(Maximum Op. Amp output voltage)
+  # Amplification: 158/4 = 39.5
+  # Note that amplification value should be re-calculated for each setup seperately.
+
+  inverted_output: False # If the amplifier circuitry is inverting amplifier
+
+  instruments_setup: 
+    multiple_devices: False # If True, device names (e.g., A: ) should be specified
+    # If false, device names should be removed.
+
+    trigger_source: cDAQ4
+    activation_sampling_frequency: 8000 # Digital-to-Analogue Converter module update rate
+    readout_sampling_frequency: 80000 # Analogue-to-Digital Converter sampling rate
+    average_io_point_difference: True # Averaging mode of the ADC output;
+    #If true, the oversampled points will be averaged,
+    #If false, the oversampled points will be presented as they are.
+
+    activation_instrument: cDAQ4Mod1
+    activation_channels: [0,1,12,3,13,14,15] # # Analogue output channels of DAC
+    activation_voltage_ranges: [
+        [-1.55,  1.55],
+        [-1.55,  1.55],
+        [-1.55,  1.55], 
+        [-1.55,  1.55],
+        [-1.55,  1.55],
+        [-1.55,  1.55],
+        [-1.55,  1.55]
+      ]  
+    activation_channel_mask: [1,1,1,1,1,1,1]
+    readout_instrument: cDAQ4Mod4
+    readout_channels: [3] # Analogue input channel(s) of ADC

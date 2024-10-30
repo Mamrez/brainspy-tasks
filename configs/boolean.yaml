@@ -1,3 +1,4 @@
+processor_type: cdaq_to_cdaq
 from_dimension: 4 # It determines the starting VC Dimension at which the experiment will start. This variable is only used for VC Dimension experiments.
 to_dimension: 7 # It determines the last VC Dimension at which the experiment will run. This variable is only used for VC Dimension experiments.
 threshold_parameter:

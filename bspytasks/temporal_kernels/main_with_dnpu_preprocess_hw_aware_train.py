@@ -30,10 +30,64 @@ from brainspy.utils.manager import get_driver
 from copy import deepcopy
 from datetime import datetime
 
-def apply_noise(weight, device, std = 0.0895):
+# loads from .npy files
+class DNPUAudioDataset(Dataset):
+    def __init__(
+        self,
+        data_dir,
+        label_dir,
+        transform,
+        projections_to_remove = None,
+    ) -> None:
+    
+        self.transform = transform
+
+        # self.dataset_tmp = np.load(data_dir)
+        # self.label = np.load(label_dir)
+
+        # self.dataset = self.dataset_tmp
+        
+        # assert len(self.dataset) == len(self.label), "Error in loading data!"
+    
+    def __len__(self) -> None:
+        return len(self.dataset)
+
+    def __targets__(self) -> None:
+        return self.label
+
+    def __getitem__(self, index):
+        if isinstance(index, torch.Tensor):
+            index = index.tolist()
+        
+        data = self.dataset[index]
+        label = self.label[index]
+
+        sample = {
+            'audio_data': data,
+            'audio_label': label
+        }
+
+        if self.transform:
+            sample = self.transform(sample)
+        
+        return sample
+    
+# cs = [0.294462, -0.452322, 0.226837, 0.015175]  > 0.0898, 0.0999, 0.125, 0.090
+def apply_noise(weight, device, std = 0.076):
     with torch.no_grad():
         noise = std * torch.max(torch.abs(weight)) * torch.randn_like(weight, device=weight.device)
         noisy_weight = weight.clone() + noise
+
+        # w_max_abs = torch.max(torch.abs(weight))
+
+        # weight = weight / w_max_abs
+
+        # noise = torch.randn_like(weight, device = weight.device) * (cs[3] + cs[2]*weight.abs() + cs[1]*weight.abs()**2 + cs[0]*weight.abs()**3)
+
+        # noisy_weight = weight + noise
+
+        # noisy_weight = noisy_weight * w_max_abs
+
     return noisy_weight
 
 class noisy_Linear(torch.nn.Module):
@@ -120,15 +174,15 @@ class noisy_Conv1d(torch.nn.modules.conv._ConvNd):
         
         return self._conv_forward(input, noisy_weight, self.bias)
 
-class M4Compact(nn.Module):
+class M2(nn.Module):
     def __init__(self, input_ch, n_channels=32, hw_train = False) -> None:
         super().__init__()
         self.bn1 = nn.BatchNorm1d(input_ch)
 
         if hw_train:
-            self.conv1 = noisy_Conv1d(input_ch, n_channels, kernel_size= 8, device=device, stride = 1)
+            self.conv1 = noisy_Conv1d(input_ch, n_channels, kernel_size = 8, device=device, stride = 1)
         else:
-            self.conv1 = nn.Conv1d(input_ch, n_channels, kernel_size=8, stride = 1)
+            self.conv1 = nn.Conv1d(input_ch, n_channels, kernel_size = 8, stride = 1)
 
         self.bn2 = nn.BatchNorm1d(n_channels)
         self.pool1 = nn.MaxPool1d(8)
@@ -152,17 +206,81 @@ class M4Compact(nn.Module):
 
         x = self.conv1(x)
         x = self.bn2(x)
-        x = F.tanh(x)
+        x = F.silu(x)
 
         x = self.pool1(x)
 
         x = self.conv2(x)
         x = self.bn3(x)
-        x = F.tanh(x)
+        x = F.silu(x)
 
         x = self.pool2(x)
 
         x = F.avg_pool1d(x, x.shape[-1])
+
+        x = x.permute(0, 2, 1)
+        x = self.fc1(x)
+        return F.log_softmax(x, dim=2)
+
+class M3(nn.Module):
+    def __init__(self, input_ch, n_channels=32, hw_train = False) -> None:
+        super().__init__()
+        self.bn1 = nn.BatchNorm1d(input_ch)
+
+        if hw_train:
+            self.conv1 = noisy_Conv1d(input_ch, n_channels, kernel_size = 8, device=device, stride = 1)
+        else:
+            self.conv1 = nn.Conv1d(input_ch, n_channels, kernel_size = 8, stride = 1)
+
+        self.bn2 = nn.BatchNorm1d(n_channels)
+        self.pool1 = nn.MaxPool1d(8)
+
+        if hw_train:
+            self.conv2 = noisy_Conv1d(n_channels, n_channels, kernel_size=3, device=device)
+        else:
+            self.conv2 = nn.Conv1d(n_channels, n_channels, kernel_size=3)
+
+        self.bn3   = nn.BatchNorm1d(n_channels)
+
+        self.pool2 = nn.MaxPool1d(4)
+
+        if hw_train:
+            self.conv3 = noisy_Conv1d(n_channels, n_channels, kernel_size=3, device=device)
+        else:
+            self.conv3 = nn.Conv1d(n_channels, n_channels, kernel_size=3)
+        
+        self.bn4 = nn.BatchNorm1d(n_channels)
+
+        self.pool3 = nn.MaxPool1d(4)
+
+        if hw_train:
+            self.fc1 = noisy_Linear(n_channels, 10, device=device)
+        else:
+            self.fc1   = nn.Linear(n_channels, 10)
+    
+    def forward(self, x):
+        x = self.bn1(x)
+
+        x = self.conv1(x)
+        x = self.bn2(x)
+        x = F.silu(x)
+
+        x = self.pool1(x)
+
+        x = self.conv2(x)
+        x = self.bn3(x)
+        x = F.silu(x)
+
+        x = self.pool2(x)
+
+        x = self.conv3(x)
+        x = self.bn4(x)
+        x = F.silu(x)
+
+        x = self.pool3(x)
+
+        x = F.avg_pool1d(x, x.shape[-1])
+
         x = x.permute(0, 2, 1)
         x = self.fc1(x)
         return F.log_softmax(x, dim=2)
@@ -196,6 +314,7 @@ def test(
 ):
     correct, total = 0, 0
     model.eval()
+    target_list, predicted_list = [], []
     with torch.no_grad():
         correct, total = 0, 0
         for data in enumerate(test_loader):
@@ -205,8 +324,13 @@ def test(
             _, predicted = torch.max(outputs, 1)
             total += data[1]['audio_label'].size(0)
             correct += (predicted == targets).sum().item() 
-    
+
+            # for confusion matrix
+            target_list.append(targets)
+            predicted_list.append(predicted)
     # print("Test accuracy: ", 100 * correct / total)
+    # if (100 * correct) / total > 98:
+    #     print("")
     return 100 * correct / total
 
 def train(
@@ -220,19 +344,19 @@ def train(
         weight_decay    = weight_decay
     )
 
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer, 
-    #     max_lr          = 0.1,
-    #     total_steps     = num_epochs,
-    #     anneal_strategy = 'cos',
-    #     cycle_momentum  = True
-    # )
-
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
-        T_max       = num_epochs,
+        max_lr          = 0.01,
+        steps_per_epoch = int(len(train_loader)),
+        epochs          = num_epochs,
+        anneal_strategy = 'cos',
+        cycle_momentum  = True
     )
 
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optimizer, 
+    #     T_max       = num_epochs,
+    # )
 
     model.train()
     accuracies = []
@@ -249,11 +373,11 @@ def train(
         )
 
         if accuracies[-1] > best_acc:
-            torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5.pt")
+            torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/sample_2075_64ch/HWAware_model_a2_5.pt")
             best_acc = accuracies[-1]
         
-        if best_acc >= 94:
-            break
+        # if best_acc > 99:
+        #     break
 
         with tqdm(train_loader, unit="batch") as tepoch:
             current_loss = 0.
@@ -305,7 +429,7 @@ def hw_train(
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr              = 0.002,
+        lr              = 0.0005,  # 0.002
         weight_decay    = weight_decay
     )
 
@@ -335,21 +459,22 @@ def hw_train(
     best_acc = 0.
 
     for epoch in range(num_epochs):
-        accuracies.append(
-            test(
-                model,
-                test_loader,
-                device
+        if epoch >= 100:
+            accuracies.append(
+                test(
+                    model,
+                    test_loader,
+                    device
+                )
             )
-        )
 
         if accuracies[-1] > best_acc:
             if epoch != 0:
-                torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5_noisy.pt")
+                torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/sample_2075_64ch/HWAware_model_a2_5_noisy.pt")
                 best_acc = accuracies[-1]
         
-        if best_acc >= 94:
-            break
+        # if best_acc > 99:
+        #     break
         
         with tqdm(train_loader, unit="batch") as tepoch:
             current_loss = 0.
@@ -382,38 +507,38 @@ def hw_train(
 
         scheduler.step()
 
-        writer.add_scalar(
-            "Learning rate",
-            # scheduler.get_last_lr()[-1],
-            optimizer.param_groups[0]['lr'],
-            epoch
-        )
-        writer.add_scalar(
-            "Loss",
-            current_loss,
-            epoch
-        )
-        writer.add_scalar(
-            "Accuracy",
-            torch.tensor(accuracies[-1]),
-            epoch
-        )
-        writer.add_histogram(
-            "conv1.weight", 
-            model.conv1.weight,
-            epoch
-        )
-        writer.add_histogram(
-            "conv2.weight", 
-            model.conv2.weight,
-            epoch
-        )
-        writer.add_histogram(
-            "fc1.weight", 
-            model.fc1.weight,
-            epoch
-        )
-        writer.flush()
+        # writer.add_scalar(
+        #     "Learning rate",
+        #     # scheduler.get_last_lr()[-1],
+        #     optimizer.param_groups[0]['lr'],
+        #     epoch
+        # )
+        # writer.add_scalar(
+        #     "Loss",
+        #     current_loss,
+        #     epoch
+        # )
+        # writer.add_scalar(
+        #     "Accuracy",
+        #     torch.tensor(accuracies[-1]),
+        #     epoch
+        # )
+        # writer.add_histogram(
+        #     "conv1.weight", 
+        #     model.conv1.weight,
+        #     epoch
+        # )
+        # writer.add_histogram(
+        #     "conv2.weight", 
+        #     model.conv2.weight,
+        #     epoch
+        # )
+        # writer.add_histogram(
+        #     "fc1.weight", 
+        #     model.fc1.weight,
+        #     epoch
+        # )
+        # writer.flush()
 
     print("-----------------------------------------")
     print("Final test: ")
@@ -438,95 +563,135 @@ class Normalize(object):
             'audio_label'       : audio_label,
         }
 
-class balanced_dataset(Dataset):
-    def __init__(self,
-                transform, 
-                train = True
-    ) -> None:
-        self.train = train
-        self.transform = transform
-        self.org_train = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/trainset.npy", allow_pickle=True)
-        self.org_test = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/testset.npy", allow_pickle=True)
+# class balanced_dataset(Dataset):
+#     def __init__(self,
+#                 transform, 
+#                 train = True
+#     ) -> None:
+#         self.train = train
+#         self.transform = transform
+#         self.org_train = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/trainset.npy", allow_pickle=True)
+#         self.org_test = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/testset.npy", allow_pickle=True)
 
-        self.concat_org_dataset = np.zeros((500, 32, 500))
-        self.concat_org_label = np.zeros((500))
+#         self.concat_org_dataset = np.zeros((500, 32, 500))
+#         self.concat_org_label = np.zeros((500))
 
-        self.balanced_train_data = np.zeros((450, 32, 500))
-        self.balanced_train_label = np.zeros((450))
+#         self.balanced_train_data = np.zeros((450, 32, 500))
+#         self.balanced_train_label = np.zeros((450))
 
-        self.balanced_test_data = np.zeros((50, 32, 500))
-        self.balanced_test_label = np.zeros((50))
+#         self.balanced_test_data = np.zeros((50, 32, 500))
+#         self.balanced_test_label = np.zeros((50))
 
-        for i in range(500):
-            if i < 50:
-                self.concat_org_dataset[i] = self.org_test.__getitem__(i)['audio_data']
-                self.concat_org_label[i] = self.org_test.__getitem__(i)['audio_label']
-            else:
-                self.concat_org_dataset[i] = self.org_train.__getitem__(i-50)['audio_data']
-                self.concat_org_label[i] = self.org_train.__getitem__(i-50)['audio_label']
+#         for i in range(500):
+#             if i < 50:
+#                 self.concat_org_dataset[i] = self.org_test.__getitem__(i)['audio_data']
+#                 self.concat_org_label[i] = self.org_test.__getitem__(i)['audio_label']
+#             else:
+#                 self.concat_org_dataset[i] = self.org_train.__getitem__(i-50)['audio_data']
+#                 self.concat_org_label[i] = self.org_train.__getitem__(i-50)['audio_label']
 
-        # balanced splitting dataset into 450 and 50
-        self.balanced_train_data, self.balanced_test_data, self.balanced_train_label, self.balanced_test_label = sklearn.model_selection.train_test_split(
-            self.concat_org_dataset,
-            self.concat_org_label, 
-            test_size = 0.1, 
-            train_size = 0.9,
-            stratify=self.concat_org_label,
-            random_state = 0
-        )
+#         # balanced splitting dataset into 450 and 50
+#         self.balanced_train_data, self.balanced_test_data, self.balanced_train_label, self.balanced_test_label = sklearn.model_selection.train_test_split(
+#             self.concat_org_dataset,
+#             self.concat_org_label, 
+#             test_size = 0.1, 
+#             train_size = 0.9,
+#             stratify=self.concat_org_label,
+#             random_state = 0
+#         )
 
-        print("")
+#         print("")
 
-    def __len__(self) -> None:
-        if self.train:
-            return len(self.balanced_train_data)
-        else:
-            return len(self.balanced_test_data)
+#     def __len__(self) -> None:
+#         if self.train:
+#             return len(self.balanced_train_data)
+#         else:
+#             return len(self.balanced_test_data)
 
-    def __getitem__(self, index):
-        if isinstance(index, torch.Tensor):
-            index = index.tolist()
+#     def __getitem__(self, index):
+#         if isinstance(index, torch.Tensor):
+#             index = index.tolist()
         
-        if self.train:
-            data = self.balanced_train_data[index]
-            label = self.balanced_train_label[index]
-        else:
-            data = self.balanced_test_data[index]
-            label = self.balanced_test_label[index]
+#         if self.train:
+#             data = self.balanced_train_data[index]
+#             label = self.balanced_train_label[index]
+#         else:
+#             data = self.balanced_test_data[index]
+#             label = self.balanced_test_label[index]
 
-        sample = {
-            'audio_data': data,
-            'audio_label': label
-        }
+#         sample = {
+#             'audio_data': data,
+#             'audio_label': label
+#         }
 
-        if self.transform:
-            sample = self.transform(sample)
+#         if self.transform:
+#             sample = self.transform(sample)
         
-        return sample
+#         return sample
         
 
 if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # train_loader = DataLoader(
+    #     np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/trainset.npy", allow_pickle=True),
+    #     # balanced_dataset(transforms.Compose([ToTensor()]), train=True),
+    #     batch_size  = 16,
+    #     shuffle     = True,
+    #     drop_last   = False
+    # )
+
+    # test_loader = DataLoader(
+    #     np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/testset.npy", allow_pickle=True),
+    #     # balanced_dataset(transforms.Compose([ToTensor()]), train=False),
+    #     batch_size  = 50,
+    #     shuffle     = False,
+    #     drop_last   = False
+    # )
+
+    # load dataset
+    dataset = torch.load(
+        "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_8_electrode_35nm_etched/dataset_1250.pt"
+    )
+
+    # stratified train eval split
+    train_idx, test_idx = sklearn.model_selection.train_test_split(
+        np.arange(dataset.__len__()),
+        test_size = 0.1,
+        random_state = 7,
+        shuffle = True,
+        stratify = dataset.__targets__()
+    )
+
+    # selecting train eval subsets
+    trainset = torch.utils.data.Subset(
+        dataset,
+        train_idx
+    )
+    evalset = torch.utils.data.Subset(
+        dataset,
+        test_idx
+    )
+
+    # pytorch train dataloader
     train_loader = DataLoader(
-        np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/trainset.npy", allow_pickle=True),
-        # balanced_dataset(transforms.Compose([ToTensor()]), train=True),
-        batch_size  = 16,
+        trainset,
+        batch_size  = 32,
         shuffle     = True,
-        drop_last   = False
+        drop_last   = True
     )
 
-    test_loader = DataLoader(
-        np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/testset.npy", allow_pickle=True),
-        # balanced_dataset(transforms.Compose([ToTensor()]), train=False),
-        batch_size  = 50,
-        shuffle     = False,
-        drop_last   = False
+    # pytorch evaluation dataloader
+    eval_loader = DataLoader(
+        evalset,
+        batch_size = 5,
+        shuffle    = False,
+        drop_last  = False
     )
 
-    model = M4Compact(
-        input_ch = 32,
+    model = M2(
+        input_ch = 64,
         hw_train= False
     )
     model = model.to(device)
@@ -536,50 +701,50 @@ if __name__ == '__main__':
     # Normal train, model is saved...
     train(
         model           = model,
-        num_epochs      = 250,
-        weight_decay    = 10e-4,
+        num_epochs      = 100,
+        weight_decay    = 1e-5,
         train_loader    = train_loader,
-        test_loader     = test_loader,
+        test_loader     = eval_loader,
         device          = device,
-        batch_size      = 16,
+        batch_size      = 32,
     )
 
     # loading the model
-    model = M4Compact(
-        input_ch = 32,
+    model = M2(
+        input_ch = 64,
         hw_train= True
     )
-    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5.pt"))
+    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/sample_2075_64ch/HWAware_model_a2_5.pt"))
     model.to(device)
 
     hw_train(
         model           = model,
         num_epochs      = 500,
         train_loader    = train_loader,
-        test_loader     = test_loader,
+        test_loader     = eval_loader,
         device          = device,
         batch_size      = 16,
-        weight_decay    = 10e-4
+        weight_decay    = 1e-3
     )
 
     # Evaluation
-    model = M4Compact(
-        input_ch = 32,
+    model = M2(
+        input_ch = 64,
         hw_train= False
     )
-    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5_noisy.pt"))
+    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/sample_2075_64ch/HWAware_model_a2_5_noisy.pt"))
     model.to(device)
     model.eval()
 
     # - Obtain the non-noisy accuracy
-    fp_acc = test(model, test_loader, device)
+    fp_acc = test(model, eval_loader, device)
 
     # - Obtain accuracy under noise influence
     cs = [0.294462, -0.452322, 0.226837, 0.015175]
     accs = []
     for _ in range(250):
         noisy_model = add_noise(model, cs)
-        accs.append(test(noisy_model, test_loader, device))
+        accs.append(test(noisy_model, eval_loader, device))
         print(f"FP acc. {fp_acc}% noisy acc {accs[-1]}%")
     
     print("Average of noise accuracy: ", np.mean(accs))

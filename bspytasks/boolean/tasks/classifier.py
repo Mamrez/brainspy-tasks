@@ -12,11 +12,14 @@ from brainspy.utils.pytorch import TorchUtils
 from brainspy.utils.manager import get_optimizer
 from brainspy.utils.io import create_directory, create_directory_timestamp
 from bspytasks.utils.io import save
-from brainspy.algorithms.modules.performance.accuracy import (
-    get_accuracy,
-    plot_perceptron,
-)
-from brainspy.algorithms.modules.signal import pearsons_correlation
+# from brainspy.algorithms.modules.performance.accuracy import (
+#     get_accuracy,
+#     plot_perceptron,
+# )
+# from brainspy.algorithms.modules.signal import pearsons_correlation
+
+from brainspy.utils.performance.accuracy import (get_accuracy, plot_perceptron)
+from brainspy.utils.signal import pearsons_correlation
 
 
 def boolean_task(

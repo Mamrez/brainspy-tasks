@@ -7,6 +7,8 @@ import scipy
 from scipy.signal import chirp
 from brainspy.utils.manager import get_driver
 
+import librosa
+import librosa.display
 
 import matplotlib.pyplot as plt
 from matplotlib import mlab
@@ -82,6 +84,7 @@ def filter_amplify(inputs):
 
 def chirp_analysis(
                     slope_length,
+                    rest_length,
                     T,
                     fs,
                     start_freq,
@@ -89,23 +92,23 @@ def chirp_analysis(
                     num_projections,
                     driver,
                     chirp_signal_method,
-                    plot = True
+                    plot = True,
                 ):
 
-    meas_input = np.zeros((7, int(2 * slope_length + T * fs)))
+    meas_input = np.zeros((7, int(2 * slope_length + rest_length + T * fs)))
 
     t = np.linspace(0, T, int(T * fs))
 
     outputs = []
     chirp_signal = chirp(
-                            t = t,
-                            f0 = start_freq,
-                            t1 = T,
-                            f1 = stop_freq,
-                            method= chirp_signal_method,
-                            phi = 0
-                        )
-    meas_input[3, slope_length:-slope_length] = chirp_signal
+        t = t,
+        f0 = start_freq,
+        t1 = T,
+        f1 = stop_freq,
+        method= chirp_signal_method,
+        phi = -90
+    )
+    meas_input[0, slope_length + rest_length : -slope_length] = chirp_signal
 
     chirp_signal_freqs = np.fft.rfftfreq(n=len(chirp_signal), d = 1/fs)
     chirp_signal_rfft = np.fft.rfft(chirp_signal)
@@ -113,12 +116,14 @@ def chirp_analysis(
     for i in range(num_projections):
         if i != 0:
             meas_input = set_random_control_voltages(
-                                            meas_input=             meas_input,
-                                            dnpu_control_indeces=   [0, 1, 2, 4, 5, 6],
-                                            slop_length=            slope_length,
-                                            magnitudes=             [-.25, .25]
+                meas_input              = meas_input,
+                dnpu_control_indeces    = [1, 2, 3, 4, 5, 6],
+                slop_length             = slope_length,
+                magnitudes              = [-1.5, 1.5]
             )
-        outputs.append(driver.forward_numpy(meas_input.T))    
+        output = driver.forward_numpy(meas_input.T)
+        outputs.append(output[slope_length + rest_length : -slope_length, 0])  
+        # plt.specgram(outputs[-1][:,0][slope_length+rest_length:-slope_length], Fs=fs)
     driver.close_tasks()
 
     filtered_amplified_outputs = filter_amplify(outputs)
@@ -360,9 +365,9 @@ def fixed_freq_phase_analysis_with_Marc(
 def frequency_filtering_analysis(
     driver,
     slope_length = 500,
-    rest_length = 5000,
+    rest_length = 12500,
     T = 1,
-    fs = 8000
+    fs = 12500
 ):
     meas_input = np.zeros((7, int(2 * slope_length + rest_length + T * fs)))
     t = np.linspace(0, T, int(T * fs))
@@ -389,6 +394,87 @@ def frequency_filtering_analysis(
     plt.show()
     print("")
 
+def plot_chirp_responses(
+        fs,
+        input
+):
+    idx = 4
+
+    S = librosa.stft(
+        input[0][:, 0],
+        n_fft = 256,
+    )
+
+    S_db = librosa.power_to_db(S, ref = np.max)
+
+    # fig, ax = plt.subplots()
+
+    # img = librosa.display.specshow(
+    #     S_db,
+    #     x_axis = 'time',
+    #     y_axis = 'mel',
+    #     sr      = 12500,
+    #     fmax   = 12500,
+    #     ax      = ax
+    # )
+
+    # fig.colorbar(
+    #     img,
+    #     ax = ax,
+    #     format = '%+2.0f dB'
+    # )
+
+    # plt.show()
+
+    print()
+
+def distortion_analysis(
+        driver,
+        f1,
+        f2,
+        slope_length = 5000,
+        rest_length = 5000,
+        T = 0.5,
+        fs = 25000
+    ):
+
+    meas_input = np.zeros((7, int(2 * slope_length + rest_length + T * fs)))
+    t = np.linspace(0, T, int(T * fs))
+
+    input_signal = 0.5 * np.sin(2 * np.pi * f1 * t) + 0.5 * np.sin(2 * np.pi * f2 * t)
+
+    set_random_control_voltages(
+        meas_input,
+        dnpu_control_indeces=[0, 1, 2, 4, 5, 6],
+        slop_length = slope_length,
+        magnitudes = [-0.25, 0.25]
+    )
+
+    meas_input[3, slope_length + rest_length : -slope_length] = input_signal
+
+    output = driver.forward_numpy(meas_input.T)
+
+    x = output[slope_length + rest_length : -slope_length, 0]
+    x = x - np.mean(output[slope_length + rest_length - 100 : slope_length + rest_length - 50])
+
+    x = x - np.mean(x)
+
+    plt.magnitude_spectrum(x, 25000)
+
+    plt.figure();plt.xlim(-10,600)
+    plt.plot((np.fft.rfftfreq(len(x), 1/25000))[2:], (np.abs(np.fft.rfft(input_signal))/np.max(np.abs(np.fft.rfft(input_signal))))[2:], marker = "*", markersize = 17, linewidth = 4)
+    plt.plot((np.fft.rfftfreq(len(x), 1/25000))[2:], (np.abs(np.fft.rfft(x))/np.max(np.abs(np.fft.rfft(x))))[2:], marker = "*", markersize = 17, linewidth = 4)
+
+    
+    # plt.figure()
+    # plt.plot(x)
+    plt.show()
+
+    driver.close_tasks()
+
+    print("")
+
+
 if __name__ == '__main__':
 
     from brainspy.utils.io import load_configs
@@ -397,7 +483,15 @@ if __name__ == '__main__':
     configs = load_configs('configs/defaults/processors/hw.yaml')
     driver = get_driver(configs=configs["driver"])
 
-    frequency_filtering_analysis(driver=driver)
+    distortion_analysis(driver, f1 = 174, f2 = 74)
+
+    # plot_chirp_responses(
+    #     fs= 25000,
+    #     input= np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_7_electrode_dev2/chirp_responses.npy")
+    # )
+
+
+    # frequency_filtering_analysis(driver=driver)
 
     # fixed_freq_phase_analysis_with_Marc(
     #     slope_length= 5000,
@@ -419,18 +513,19 @@ if __name__ == '__main__':
     #     stop_freq= 5000,
     #     num_projections= 1,
     #     driver= driver,
-    #     chirp_signal_method= 'linear'
+    #     chirp_signal_method= 'logarithmic'
     # )
 
     # chirp_analysis(
-    #                 slope_length=25000,
-    #                 T= 3,
-    #                 fs= 25000,
-    #                 start_freq= 10,
-    #                 stop_freq= 2000,
-    #                 num_projections= 5,
-    #                 driver=driver,
-    #                 chirp_signal_method = 'logarithmic' #'linear' 
+    #     slope_length = 1250,
+    #     rest_length = 6250,
+    #     T= 1,
+    #     fs= 25000,
+    #     start_freq= 150,
+    #     stop_freq= 1500,
+    #     num_projections= 100,
+    #     driver=driver,
+    #     chirp_signal_method = 'logarithmic' #'linear' 
     # )
 
     # bode_analysis(

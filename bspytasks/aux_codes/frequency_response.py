@@ -64,13 +64,13 @@ def chirp_analysis(
                             method= chirp_signal_method,
                             phi = 90)
         chirp_signal_tilde = (start_freq / T) * np.exp(-t/T) * np.flip(chirp_signal)
-        meas_input[3, rest_length + slope_length:-slope_length] = 1.2 * chirp_signal
+        meas_input[2, rest_length + slope_length:-slope_length] = 1.2 * chirp_signal
         if i != 0:
             meas_input = set_random_control_voltages(
                                             meas_input=meas_input,
-                                            dnpu_control_indeces=[0, 1, 2, 4, 5, 6],
+                                            dnpu_control_indeces=[0, 1, 3, 4, 5, 6],
                                             slop_length=slope_length,
-                                            magnitudes=[-.85, .85]
+                                            magnitudes=[-.35, .35]
             )
         for j in range(repetitions):
             outputs.append(driver.forward_numpy(meas_input.T))    
@@ -188,17 +188,17 @@ if __name__ == '__main__':
 
     # np.random.seed(0)  
 
-    configs = load_configs('configs/defaults/processors/hw_freq_analysis.yaml')
+    configs = load_configs('configs/defaults/processors/hw.yaml')
     driver = get_driver(configs=configs["driver"])
     # configs['driver']['instruments_setup']['activation_sampling_frequency'] = 62500
 
     chirp_analysis(
-                    slope_length=4000,
-                    T= 5,
-                    fs= 25000,
+                    slope_length=2500,
+                    T= 1,
+                    fs= 12500,
                     start_freq= 10,
-                    stop_freq= 300,
-                    num_projections= 5,
+                    stop_freq= 1250,
+                    num_projections= 50,
                     driver=driver,
                     chirp_signal_method = 'logarithmic',
                     repetitions = 1

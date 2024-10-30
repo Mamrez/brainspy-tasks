@@ -123,17 +123,16 @@ def time_constant_analysis(
 						rest_length = 1500,
 						plateau_length = 5000,
 
-						input_elec_index = 3,
+						input_elec_index = 6,
 						input_step_voltage = 1.,
 
-						bias_electrode_index = 0,
-						bias_voltage = .4,
-						dnpu_control_indeces = [0, 1, 2, 4, 5, 6]
+						dnpu_control_indeces = [0, 1, 2, 3, 4, 5]
 
 ):
 
 	configs['driver']['instruments_setup']['activation_sampling_frequency'] = 1000
 	configs['driver']['instruments_setup']['readout_sampling_frequency'] = 100000
+	configs['driver']['instruments_setup']['average_io_point_difference'] = True
 
 	meas_input = np.zeros((7, int(plateau_length + 2 * slope_length + rest_length)))
 
@@ -153,17 +152,17 @@ def time_constant_analysis(
 	for i in range(500):
 	# set random control voltages
 		for i in range(len(dnpu_control_indeces)):
-			rand_value = np.random.uniform(-0.5, 0.5)
-			ramp_up = np.linspace(0, rand_value, slope_length)
-			plateau = np.linspace(rand_value, rand_value, rest_length + plateau_length)
-			ramp_down = np.linspace(rand_value, 0, slope_length)
-			meas_input[dnpu_control_indeces[i], :] = np.concatenate((ramp_up, plateau, ramp_down))
+				rand_value = np.random.uniform(-0.8, 0.8)
+				ramp_up = np.linspace(0, rand_value, slope_length)
+				plateau = np.linspace(rand_value, rand_value, rest_length + plateau_length)
+				ramp_down = np.linspace(rand_value, 0, slope_length)
+				meas_input[dnpu_control_indeces[i], :] = np.concatenate((ramp_up, plateau, ramp_down))
 		output = driver.forward_numpy(meas_input.T)
 		time_constant = calculate_time_constant(
 											input = 		output,
-											slope_length = 	1000,
-											rest_length = 	1500,
-											plateau_length =5000,
+											slope_length = 	slope_length,
+											rest_length = 	rest_length,
+											plateau_length = plateau_length,
 						)
 		time_constant_indeces.append(time_constant)
 	
@@ -234,20 +233,26 @@ if __name__ == '__main__':
 
 	# np.random.seed(0)
 
-	fs = 50000
-	num_projections = 2
-	input_elec_idx = 3
-
-	
+	fs = 12500
+	num_projections = 5
+	input_elec_idx = 5
 
 	# meaure device
 	configs = load_configs(
-			'configs/defaults/processors/hw_freq_analysis.yaml'
+			'configs/defaults/processors/hw.yaml'
 		)
 
-	# time_constant_analysis(configs)
+	time_constant_analysis(
+		configs				= configs,
+		slope_length 		= 1000,
+		rest_length 		= 5000,
+		plateau_length 		= 5000,
+		input_elec_index 	= 6,
+		input_step_voltage 	= 1.,
+		dnpu_control_indeces = [0, 1, 2, 3, 4, 5]
+	)
 
-	spike_pattern_response(configs)
+	# spike_pattern_response(configs)
 	
 	# plot_iv(configs)
 

@@ -66,21 +66,43 @@ def load_audio_dataset(
         os.walk(path) for path in data_dir
     ):
         for file in files:
-            tmp, _ = librosa.load(os.path.join(subdir, file), sr=None, mono=True, dtype=np.float32)
+            # Loading audio file;
+            # First performing low pass filtering, and then trimming
 
-            tmp, _ = librosa.effects.trim(tmp, frame_length=128, hop_length=1, top_db=12)
+            tmp, sr = librosa.load(os.path.join(subdir, file), sr=None, mono=True, dtype=np.float32)
 
+            # Amplification, to be chosen in accordance to DNPU performance
             if min_max_scale == True:
                 scale = np.max(np.abs(tmp))
-                tmp = tmp * (1/scale) * 0.75
+                tmp = tmp * (1/scale) * 1
             
-            if len(tmp) > 12000:
-                print("Warning! in loading data...")
+            # sr = 16000
             if low_pass_filter == True:
                 tmp = butter_lowpass_filter(
-                                        tmp, 3000, 4, 12500
+                    tmp, 4000, 3, sr
                 )
+            
+            # plt.figure()
+            # plt.plot(tmp)
+
+            # Removing silence
+            tmp, _ = librosa.effects.trim(
+                y               = tmp, 
+                top_db          = 12,
+                ref             = np.max,
+                frame_length    = 128, 
+                hop_length      = 4
+            )
+
+            # plt.figure()
+            # plt.plot(tmp)
+            
+            if len(tmp) > 16000:
+                print("Warning! in loading data...")
+
             dataset.append(tmp)
+
+            # CAREFUL!!!
             label.append(file[1])
     
     return dataset, label
@@ -97,7 +119,7 @@ def measurement(
     empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_in_house_arsenic/empty/"
 
     train_audios, train_labels = load_audio_dataset(
-        data_dir        = (empty, "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/spoken_digit_task/ti46/NIST/"),
+        data_dir        = (empty, "C:/Users/Mohamadreza/Documents/ti_spoken_digits/female_speaker"),
         min_max_scale   = True,
         low_pass_filter = True
     )
@@ -106,11 +128,13 @@ def measurement(
 
     # Dividing random voltage of neighbouring electrodes by a factor of 2
     rand_matrix = np.random.uniform(
-        -0.25, 
-        0.25, 
+        -0.8, 
+        0.8, 
         size = (len(dnpu_control_indeces), n_output_channels)
     )
     
+    rand_matrix[[-1, -2], :] = rand_matrix[[-1, -2], :] / 2
+
     dnpu_output_train = np.zeros((len(train_audios), n_output_channels, 12500))
 
     for d in tqdm(range(len(train_audios)), desc="Measuring training data..."):
@@ -140,7 +164,7 @@ def measurement(
             output = output - avg
 
             output = butter_lowpass_filter(
-                output, 3000, 4, 12500
+                output, 5000, 4, 12500
             )
 
             # Padding output to 12500
@@ -158,58 +182,97 @@ def measurement(
             
             dnpu_output_train[d][p_idx] = padded_output
             
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/dnpu_output.npy", dnpu_output_train)
-    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/labels.npy", train_labels)
+    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_8_35nm_etched/data.npy", dnpu_output_train)
+    np.save("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_8_35nm_etched/labels.npy", train_labels)
 
     driver.close_tasks()
 
 def post_dnpu_down_sample(
     input, # (500, 32, 12500)
-    receptive_field = 4, # in milisecond
-    sample_rate = 12500, # hz
+    n_samples = 500, 
+    low_pass_filter = None
 ):
-    kernel_size = int(sample_rate * receptive_field * 0.001) # 50 points per window
-    o_size = int(np.shape(input)[2] // kernel_size) # 250
 
-    # correct this part
-    output = np.zeros((np.shape(input)[0], np.shape(input)[1], 500))
-    for i in range(len(input)):
-        for j in range(len(input[i])):
-            for k in range(0, 500):
-                output[i][j][k] = input[i][j][k * 25]
-
+    # output = np.zeros((np.shape(input)[0], np.shape(input)[1], 500))
     # for i in range(len(input)):
     #     for j in range(len(input[i])):
-    #         for k in range(0, kernel_size):
-    #             output[i][j][k] = input[i][j][k * o_size - 1]
-    
+    #         for k in range(0, 500):
+    #             output[i][j][k] = input[i][j][k * 25] # 25
+    if low_pass_filter == True:
+        for i in range(len(input)):
+            for j in range(len(input[i])):
+                input[i][j] = butter_lowpass_filter(
+                    input[i][j],
+                    cutoff  = 800,
+                    order   = 3,
+                    fs      = 12500
+                )
+
+    fact = 12500 // n_samples
+    output = np.zeros((len(input), np.shape(input)[1], n_samples))
+    for i in range(len(input)):
+        for j in range(len(input[i])):
+            output[i][j] = input[i][j][::fact]
+
     return output
 
+# class M4Compact(nn.Module):
+#     def __init__(self, input_ch, n_channels=32) -> None:
+#         super().__init__()
+#         self.bn1 = nn.BatchNorm1d(input_ch)
+#         self.conv1 = nn.Conv1d(input_ch, int(1. * n_channels), kernel_size=8)
+#         self.bn2 = nn.BatchNorm1d(int(1. * n_channels))
+#         self.pool1 = nn.MaxPool1d(8)
+#         self.conv2 = nn.Conv1d(int(1. * n_channels), int(1. * n_channels), kernel_size=3)
+#         self.bn3   = nn.BatchNorm1d(int(1. * n_channels))
+#         self.pool2 = nn.MaxPool1d(8)
+#         self.fc1   = nn.Linear(int(1. * n_channels), 10)
+    
+#     def forward(self, x):
+#         x = self.bn1(x)
+#         x = F.tanh(x)
+
+#         x = self.conv1(x)
+#         x = self.bn2(x)
+#         x = F.tanh(x)
+
+#         x = self.pool1(x)
+
+#         x = self.conv2(x)
+#         x = self.bn3(x)
+#         x = F.tanh(x)
+
+#         # x = self.pool2(x)
+
+#         x = F.avg_pool1d(x, x.shape[-1])
+#         x = x.permute(0, 2, 1)
+#         x = self.fc1(x)
+#         return F.log_softmax(x, dim=2)
+
 class M4Compact(nn.Module):
-    def __init__(self, input_ch, n_channels=32) -> None:
+    def __init__(self, input_ch = 32, n_channels=32) -> None:
         super().__init__()
         self.bn1 = nn.BatchNorm1d(input_ch)
-        self.conv1 = nn.Conv1d(input_ch, int(0.5 * n_channels), kernel_size=3)
-        self.bn2 = nn.BatchNorm1d(int(0.5 * n_channels))
+        self.conv1 = nn.Conv1d(input_ch, 32, kernel_size=8)
+        self.bn2 = nn.BatchNorm1d(32)
         self.pool1 = nn.MaxPool1d(8)
-        self.conv2 = nn.Conv1d(int(0.5 * n_channels), int(0.5 * n_channels), kernel_size=3)
-        self.bn3   = nn.BatchNorm1d(int(0.5 * n_channels))
-        self.pool2 = nn.MaxPool1d(8)
-        self.fc1   = nn.Linear(int(0.5 * n_channels), 10)
+        # self.conv2 = nn.Conv1d(32, 32, kernel_size=3)
+        # self.bn3   = nn.BatchNorm1d(32)
+        # self.pool2 = nn.MaxPool1d(4)
+        self.fc1   = nn.Linear(32, 10)
     
     def forward(self, x):
-        x = self.bn1(x)
-        x = F.relu(x)
+        x = self.bn1(x[:,:,0:971])
 
         x = self.conv1(x)
         x = self.bn2(x)
-        x = F.relu(x)
+        x = F.tanh(x)
 
         x = self.pool1(x)
 
-        x = self.conv2(x)
-        x = self.bn3(x)
-        x = F.relu(x)
+        # x = self.conv2(x)
+        # x = self.bn3(x)
+        # x = F.tanh(x)
 
         # x = self.pool2(x)
 
@@ -270,7 +333,11 @@ class DNPUAudioDataset(Dataset):
         self.dataset_tmp = np.load(data_dir)
         self.label = np.load(label_dir)
 
-        self.dataset_tmp = post_dnpu_down_sample(self.dataset_tmp, 4, 12500)
+        self.dataset_tmp = post_dnpu_down_sample(
+            self.dataset_tmp, 
+            n_samples = 1250,
+            low_pass_filter = True
+        )
 
         if projections_to_remove:
             # new dataset size -> 450, 32-rem, 496
@@ -288,6 +355,9 @@ class DNPUAudioDataset(Dataset):
     
     def __len__(self) -> None:
         return len(self.dataset)
+
+    def __targets__(self) -> None:
+        return self.label
 
     def __getitem__(self, index):
         if isinstance(index, torch.Tensor):
@@ -319,7 +389,7 @@ def train(
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
-        max_lr          = 0.005,
+        max_lr          = 0.01,
         steps_per_epoch = int(len(train_loader)),
         epochs          = num_epochs,
         anneal_strategy = 'cos',
@@ -361,20 +431,21 @@ def train(
                     current_loss = 0.
                 i += 1
 
-                tepoch.set_postfix(loss=current_loss, accuracy = np.max(accuracies))
+                tepoch.set_postfix(loss=current_loss, accuracy = accuracies[-1])
 
             if epoch >= 40:
                 model.eval()
-                correct, total = 0, 0
-                for data in enumerate(test_loader):
-                    inputs = data[1]['audio_data'].to(device)
-                    targets = data[1]['audio_label'].type(torch.LongTensor).to(device)
-                    outputs = torch.squeeze(model(inputs))
-                    _, predicted = torch.max(outputs, 1)
-                    total += data[1]['audio_label'].size(0)
-                    correct += (predicted == targets).sum().item()
+                with torch.no_grad():
+                    correct, total = 0, 0
+                    for data in enumerate(test_loader):
+                        inputs = data[1]['audio_data'].to(device)
+                        targets = data[1]['audio_label'].type(torch.LongTensor).to(device)
+                        outputs = torch.squeeze(model(inputs))
+                        _, predicted = torch.max(outputs, 1)
+                        total += data[1]['audio_label'].size(0)
+                        correct += (predicted == targets).sum().item()
 
-                # print("Test accuracy: ", 100 * correct / total)
+                    # print("Test accuracy: ", 100 * correct / total)
                 accuracies.append(100*correct/total)
                 model.train()
             
@@ -387,62 +458,69 @@ if __name__ == '__main__':
 
     # from brainspy.utils.io import load_configs
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     empty = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_in_house_arsenic/empty/"
 
     # configs = load_configs(
     #     "configs/defaults/processors/hw.yaml"
     # )
 
-    # np.random.seed(70)
+    # np.random.seed(250)
     # measurement(
     #     configs=configs,
-    #     n_output_channels       = 32,
-    #     slope_length            = 1000,
-    #     rest_length             = 2000,
-    #     dnpu_input_index        = 4,
-    #     dnpu_control_indeces    =[0, 1, 2, 3, 5, 6],
+    #     n_output_channels       = 64,
+    #     slope_length            = 500,
+    #     rest_length             = 12500,
+    #     dnpu_input_index        = 2,
+    #     dnpu_control_indeces    = [0, 1, 3, 4, 5, 6],
     # )
 
     projections_to_remove = [] # [3, 6, 11, 15]
 
     # Bellow is a bit complex type fo coding. I concatenate the whole training dataset to calculate mean and std (global variables)
     # Then, I use these variables to normalize both training AND test dataset.
-    dataset_for_mean =  DNPUAudioDataset(
-                            data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_2/train_data.npy",
-                            label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_2/train_labels.npy",
-                            transform   = ToTensor(),
-                            projections_to_remove= projections_to_remove
-    )
+    # dataset_for_mean =  DNPUAudioDataset(
+    #                         data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/boron_7_electrode/second_try/data.npy",
+    #                         label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/boron_7_electrode/second_try/labels.npy",
+    #                         transform   = ToTensor(),
+    #                         projections_to_remove= projections_to_remove
+    # )
                                     
-    _mean, _std = get_mean_and_std(
-        DataLoader(
-            dataset_for_mean,
-            batch_size= len(dataset_for_mean),
-            shuffle= False,
-            drop_last= False   
-        )
-    )
+    # _mean, _std = get_mean_and_std(
+    #     DataLoader(
+    #         dataset_for_mean,
+    #         batch_size= len(dataset_for_mean),
+    #         shuffle= False,
+    #         drop_last= False   
+    #     )
+    # )
 
     transform = transforms.Compose([
         ToTensor(),
-        Normalize()
+        # Normalize()
     ])
 
-    batch_size = 32
+    batch_size = 16
 
     dataset = DNPUAudioDataset(
-        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_2/train_data.npy",
-        label_dir= "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_2/train_labels.npy",
+        data_dir    = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_8_electrode_35nm_etched/data.npy",
+        label_dir   = "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_digits/boron_8_electrode_35nm_etched/labels.npy",
         transform   = transform,
         projections_to_remove= projections_to_remove
     )
 
-    trainset, testset = torch.utils.data.random_split(
-        dataset,
-        lengths = [450, 50]
+
+    train_idx, test_idx = sklearn.model_selection.train_test_split(
+        np.arange(dataset.__len__()),
+        test_size       = .1,
+        random_state    = 7,
+        shuffle         = True,
+        stratify        = dataset.__targets__()
     )
 
+    # Subset dataset for train and val
+    trainset = torch.utils.data.Subset(dataset, train_idx)
+    testset = torch.utils.data.Subset(dataset, test_idx)
 
     train_loader = DataLoader(
         # torch.utils.data.ConcatDataset([train_set1, train_set2, train_set3, train_set4, train_set5]),
@@ -455,25 +533,27 @@ if __name__ == '__main__':
     test_loader = DataLoader(
         # torch.utils.data.ConcatDataset([test_set1, test_set2, test_set3, test_set4, test_set5]),
         testset,
-        batch_size  = 8,
+        batch_size  = 2,
         shuffle     = False,
         drop_last   = False
     )
 
 
     model = M4Compact(
-        input_ch = 32 - len(projections_to_remove),
+        input_ch = 64 - len(projections_to_remove),
     )
     print("Number of learnable params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
 
     train(
         model           = model,
-        num_epochs      = 100,
-        weight_decay    = 10e-5,
+        num_epochs      = 500,
+        weight_decay    = 1e-3,
         train_loader    = train_loader,
         test_loader     = test_loader,
         device          = device,
         batch_size      = batch_size,
     )
+
+    print("")
 

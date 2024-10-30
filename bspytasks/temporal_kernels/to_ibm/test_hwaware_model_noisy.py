@@ -69,6 +69,7 @@ class M4Compact(nn.Module):
 def validate(model, test_loader):
     correct, total = 0, 0
     model.eval()
+    targets_l, predicted_l = [], []
     with torch.no_grad():
         correct, total = 0, 0
         for inputs, targets in test_loader:
@@ -77,6 +78,10 @@ def validate(model, test_loader):
             _, predicted = torch.max(outputs, 1)
             total += len(targets)
             correct += (predicted == targets).sum().item()
+            
+            predicted_l.append(predicted)
+            targets_l.append(targets)
+    
     return 100 * correct / total
 
 def add_noise(model, cs):
@@ -134,13 +139,14 @@ if __name__ == '__main__':
     )
 
     model = M4Compact(input_ch=32)
-    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/HWAware_model_a2_5_noisy_2.pt", map_location=device))
+    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/HWAware_model_a2_5_noisy_1.pt", map_location=device))
     model = model.to(device= device)
     model.eval()
     model = wrap_conv1d(model)
 
     # - Obtain the non-noisy accuracy
     fp_acc = validate(model, test_loader)
+    
 
     # - Obtain accuracy under noise influence
     cs = [0.294462, -0.452322, 0.226837, 0.015175]

@@ -30,7 +30,7 @@ from brainspy.utils.manager import get_driver
 from copy import deepcopy
 from datetime import datetime
 
-def apply_noise(weight, device, std = 0.0895):
+def apply_noise(weight, device, std = 0.067):
     with torch.no_grad():
         noise = std * torch.max(torch.abs(weight)) * torch.randn_like(weight, device=weight.device)
         noisy_weight = weight.clone() + noise
@@ -120,47 +120,61 @@ class noisy_Conv1d(torch.nn.modules.conv._ConvNd):
         
         return self._conv_forward(input, noisy_weight, self.bias)
 
-class M4Compact(nn.Module):
+
+class M4(nn.Module):
     def __init__(self, input_ch, n_channels=32, hw_train = False) -> None:
         super().__init__()
         self.bn1 = nn.BatchNorm1d(input_ch)
+        self.pool1 = nn.MaxPool1d(4)
 
         if hw_train:
-            self.conv1 = noisy_Conv1d(input_ch, n_channels, kernel_size= 8, device=device, stride = 1)
+            self.conv1 = noisy_Conv1d(input_ch, n_channels, kernel_size= 3, device=device)
         else:
-            self.conv1 = nn.Conv1d(input_ch, n_channels, kernel_size=8, stride = 1)
+            self.conv1 = nn.Conv1d(input_ch, n_channels, kernel_size=3, stride = 1)
 
         self.bn2 = nn.BatchNorm1d(n_channels)
-        self.pool1 = nn.MaxPool1d(8)
-
-        if hw_train:
-            self.conv2 = noisy_Conv1d(n_channels, n_channels, kernel_size=3, device=device)
-        else:
-            self.conv2 = nn.Conv1d(n_channels, n_channels, kernel_size=3)
-
-        self.bn3   = nn.BatchNorm1d(n_channels)
-
         self.pool2 = nn.MaxPool1d(4)
 
         if hw_train:
-            self.fc1 = noisy_Linear(n_channels, 10, device=device)
+            self.conv2 = noisy_Conv1d(n_channels, 2 * n_channels, kernel_size=3, device=device)
         else:
-            self.fc1   = nn.Linear(n_channels, 10)
+            self.conv2 = nn.Conv1d(n_channels, 2 * n_channels, kernel_size=3)
+
+        self.bn3   = nn.BatchNorm1d(2 * n_channels)
+
+        self.pool3 = nn.MaxPool1d(4)
+
+        if hw_train:
+            self.conv3 = noisy_Conv1d(2 * n_channels, 2 * n_channels, kernel_size=3, device=device)
+        else:
+            self.conv3 = nn.Conv1d(2 * n_channels, 2 * n_channels, kernel_size=3)
+
+        self.bn4 = nn.BatchNorm1d(2 * n_channels)
+        self.pool4 = nn.MaxPool1d(4)
+
+        if hw_train:
+            self.fc1 = noisy_Linear(2 * n_channels, 26, device=device)
+        else:
+            self.fc1   = nn.Linear(2 * n_channels, 26)
     
     def forward(self, x):
         x = self.bn1(x)
-
-        x = self.conv1(x)
-        x = self.bn2(x)
-        x = F.tanh(x)
-
         x = self.pool1(x)
 
-        x = self.conv2(x)
-        x = self.bn3(x)
-        x = F.tanh(x)
+        x = self.conv1(x)
+        x = F.relu(self.bn2(x))
 
         x = self.pool2(x)
+
+        x = self.conv2(x)
+        x = F.relu(self.bn3(x))
+
+        x = self.pool3(x)
+
+        x = self.conv3(x)
+        x = F.relu(self.bn4(x))
+
+        x = self.pool4(x)
 
         x = F.avg_pool1d(x, x.shape[-1])
         x = x.permute(0, 2, 1)
@@ -194,6 +208,7 @@ def test(
     test_loader,
     device
 ):
+        
     correct, total = 0, 0
     model.eval()
     with torch.no_grad():
@@ -207,32 +222,39 @@ def test(
             correct += (predicted == targets).sum().item() 
     
     # print("Test accuracy: ", 100 * correct / total)
+    
+
     return 100 * correct / total
 
 def train(
     model, num_epochs, weight_decay, train_loader, test_loader, device, batch_size
 ):
+    
+    # Tensorboard configs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    writer = SummaryWriter("runs/ti_alpha_{}".format(timestamp))
+
     model.to(device)
     loss_fn = torch.nn.CrossEntropyLoss()
 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
+        lr = 0.01,
         weight_decay    = weight_decay
     )
 
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer, 
-    #     max_lr          = 0.1,
-    #     total_steps     = num_epochs,
-    #     anneal_strategy = 'cos',
-    #     cycle_momentum  = True
-    # )
-
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
-        T_max       = num_epochs,
+        max_lr          = 0.01,
+        total_steps     = num_epochs,
+        anneal_strategy = 'cos',
+        cycle_momentum  = True
     )
 
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optimizer, 
+    #     T_max       = num_epochs,
+    # )
 
     model.train()
     accuracies = []
@@ -249,7 +271,7 @@ def train(
         )
 
         if accuracies[-1] > best_acc:
-            torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5.pt")
+            torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels_ti_alpha/models/HWAware_model_a2_5.pt")
             best_acc = accuracies[-1]
         
         if best_acc >= 94:
@@ -282,7 +304,13 @@ def train(
                 tepoch.set_postfix(loss=current_loss, top_acc = best_acc, curr_acc = accuracies[-1])
 
         scheduler.step()
-                        
+
+        writer.add_scalar(
+            "Accuracy",
+            torch.tensor(accuracies[-1]),
+            epoch
+        )
+    writer.close()
     print("-----------------------------------------")
 
 def hw_train(
@@ -345,7 +373,7 @@ def hw_train(
 
         if accuracies[-1] > best_acc:
             if epoch != 0:
-                torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5_noisy.pt")
+                torch.save(model.state_dict(), "C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels_ti_alpha/models/HWAware_model_a2_5_noisy.pt")
                 best_acc = accuracies[-1]
         
         if best_acc >= 94:
@@ -441,29 +469,28 @@ class Normalize(object):
 class balanced_dataset(Dataset):
     def __init__(self,
                 transform, 
-                train = True
+                train = True,
+                loaded_channels = 32,
     ) -> None:
         self.train = train
         self.transform = transform
-        self.org_train = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/trainset.npy", allow_pickle=True)
-        self.org_test = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti46/in_elec_4/testset.npy", allow_pickle=True)
+        self.data = np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/tmp/projected_ti_alpha/in_elec_4_var/dataset.npy", allow_pickle=True)
 
-        self.concat_org_dataset = np.zeros((500, 32, 500))
-        self.concat_org_label = np.zeros((500))
+        data_num = len(self.data)
 
-        self.balanced_train_data = np.zeros((450, 32, 500))
-        self.balanced_train_label = np.zeros((450))
+        self.concat_org_dataset = np.zeros((data_num, loaded_channels, 1250))
+        self.concat_org_label = np.zeros((data_num))
 
-        self.balanced_test_data = np.zeros((50, 32, 500))
-        self.balanced_test_label = np.zeros((50))
+        self.balanced_train_data = np.zeros((int(0.9 * data_num), loaded_channels, 1250))
+        self.balanced_train_label = np.zeros((int(0.9 * data_num)))
 
-        for i in range(500):
-            if i < 50:
-                self.concat_org_dataset[i] = self.org_test.__getitem__(i)['audio_data']
-                self.concat_org_label[i] = self.org_test.__getitem__(i)['audio_label']
-            else:
-                self.concat_org_dataset[i] = self.org_train.__getitem__(i-50)['audio_data']
-                self.concat_org_label[i] = self.org_train.__getitem__(i-50)['audio_label']
+        self.balanced_test_data = np.zeros((int(0.1 * data_num), loaded_channels, 1250))
+        self.balanced_test_label = np.zeros((int(0.1 * data_num)))
+
+        for i in range(data_num):
+            for j in range(loaded_channels):
+                self.concat_org_dataset[i][j] = self.data.__getitem__(i)['audio_data'][j]
+            self.concat_org_label[i] = self.data.__getitem__(i)['audio_label']
 
         # balanced splitting dataset into 450 and 50
         self.balanced_train_data, self.balanced_test_data, self.balanced_train_label, self.balanced_test_label = sklearn.model_selection.train_test_split(
@@ -509,23 +536,23 @@ if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    batch_size = 16
+
     train_loader = DataLoader(
-        np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/trainset.npy", allow_pickle=True),
-        # balanced_dataset(transforms.Compose([ToTensor()]), train=True),
-        batch_size  = 16,
+        balanced_dataset(transforms.Compose([ToTensor()]), train=True),
+        batch_size  = batch_size,
         shuffle     = True,
         drop_last   = False
     )
 
     test_loader = DataLoader(
-        np.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/to_ibm/testset.npy", allow_pickle=True),
-        # balanced_dataset(transforms.Compose([ToTensor()]), train=False),
-        batch_size  = 50,
+        balanced_dataset(transforms.Compose([ToTensor()]), train=False),
+        batch_size  = 64,
         shuffle     = False,
         drop_last   = False
     )
 
-    model = M4Compact(
+    model = M4(
         input_ch = 32,
         hw_train= False
     )
@@ -536,59 +563,59 @@ if __name__ == '__main__':
     # Normal train, model is saved...
     train(
         model           = model,
-        num_epochs      = 250,
+        num_epochs      = 200,
         weight_decay    = 10e-4,
         train_loader    = train_loader,
         test_loader     = test_loader,
         device          = device,
-        batch_size      = 16,
+        batch_size      = batch_size,
     )
 
-    # loading the model
-    model = M4Compact(
-        input_ch = 32,
-        hw_train= True
-    )
-    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5.pt"))
-    model.to(device)
+    # # loading the model
+    # model = M4(
+    #     input_ch = 32,
+    #     hw_train= True
+    # )
+    # model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels_ti_alpha/models/HWAware_model_a2_5.pt"))
+    # model.to(device)
 
-    hw_train(
-        model           = model,
-        num_epochs      = 500,
-        train_loader    = train_loader,
-        test_loader     = test_loader,
-        device          = device,
-        batch_size      = 16,
-        weight_decay    = 10e-4
-    )
+    # hw_train(
+    #     model           = model,
+    #     num_epochs      = 500,
+    #     train_loader    = train_loader,
+    #     test_loader     = test_loader,
+    #     device          = device,
+    #     batch_size      = batch_size,
+    #     weight_decay    = 10e-3
+    # )
 
-    # Evaluation
-    model = M4Compact(
-        input_ch = 32,
-        hw_train= False
-    )
-    model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels/models/HWAware_model_a2_5_noisy.pt"))
-    model.to(device)
-    model.eval()
+    # # Evaluation
+    # model = M4(
+    #     input_ch = 32,
+    #     hw_train= False
+    # )
+    # model.load_state_dict(torch.load("C:/Users/Mohamadreza/Documents/github/brainspy-tasks/bspytasks/temporal_kernels_ti_alpha/models/HWAware_model_a2_5_noisy.pt"))
+    # model.to(device)
+    # model.eval()
 
-    # - Obtain the non-noisy accuracy
-    fp_acc = test(model, test_loader, device)
+    # # - Obtain the non-noisy accuracy
+    # fp_acc = test(model, test_loader, device)
 
-    # - Obtain accuracy under noise influence
-    cs = [0.294462, -0.452322, 0.226837, 0.015175]
-    accs = []
-    for _ in range(250):
-        noisy_model = add_noise(model, cs)
-        accs.append(test(noisy_model, test_loader, device))
-        print(f"FP acc. {fp_acc}% noisy acc {accs[-1]}%")
+    # # - Obtain accuracy under noise influence
+    # cs = [0.294462, -0.452322, 0.226837, 0.015175]
+    # accs = []
+    # for _ in range(250):
+    #     noisy_model = add_noise(model, cs)
+    #     accs.append(test(noisy_model, test_loader, device))
+    #     print(f"FP acc. {fp_acc}% noisy acc {accs[-1]}%")
     
-    print("Average of noise accuracy: ", np.mean(accs))
-    print("Min/max of noise accuracy: ", np.min(accs), "/", np.max(accs))
-    print("Accuracy fluctuation: ", np.max(accs)-np.min(accs) ,"%")
+    # print("Average of noise accuracy: ", np.mean(accs))
+    # print("Min/max of noise accuracy: ", np.min(accs), "/", np.max(accs))
+    # print("Accuracy fluctuation: ", np.max(accs)-np.min(accs) ,"%")
 
-    _ = plt.hist(accs, bins='auto')
-    plt.title("Distribution of validation accuracy after clipping and noise injection")
-    plt.xlim(right=100)
-    plt.xlabel("Accuracy (100%)")
-    plt.ylabel("Distribution over 200 runs")
-    plt.show()
+    # _ = plt.hist(accs, bins='auto')
+    # plt.title("Distribution of validation accuracy after clipping and noise injection")
+    # plt.xlim(right=100)
+    # plt.xlabel("Accuracy (100%)")
+    # plt.ylabel("Distribution over 200 runs")
+    # plt.show()
